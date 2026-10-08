@@ -75,7 +75,8 @@ const C = window.ER_CONFIG || {};
 const configured = !!(C.SUPABASE_URL && C.SUPABASE_ANON_KEY && !/YOUR-/.test(C.SUPABASE_URL + C.SUPABASE_ANON_KEY) && window.supabase);
 const sb = configured ? window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY, { auth:{ persistSession:true, autoRefreshToken:true } }) : null;
 async function q(p){ const { data, error } = await p; if (error) throw error; return data; }
-const photoUrl = path => path ? `${C.SUPABASE_URL}/storage/v1/object/public/products/${path.split('/').map(encodeURIComponent).join('/')}` : '';
+const photoUrl = path => !path ? '' : /^https?:\/\//.test(path) ? path : `${C.SUPABASE_URL}/storage/v1/object/public/products/${path.split('/').map(encodeURIComponent).join('/')}`;
+const isOwnPhoto = path => path && !/^https?:\/\//.test(path);
 
 async function loadTable(name){
   if (name === 'products') { S.products = await q(sb.from('products').select('*').order('name')); S.loaded = true; }
@@ -194,9 +195,13 @@ function closeOv(){ $('ov').hidden = true; $('ov').innerHTML = ''; document.body
 $('ov').onclick = e => { if (e.target === $('ov')) closeOv(); };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('ov').hidden) closeOv(); else closeSheet(); } });
 function showGallery(p){
-  if (!p?.photos?.length) return;
-  openOv(`<div class="row between"><h2>${esc(pName(p))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
-    ${p.photos.map(ph => `<img class="big" src="${esc(photoUrl(ph))}" alt="${esc(pName(p))}" loading="lazy">`).join('')}`);
+  if (!p) return;
+  const specs = Object.entries(p.specs || {}).filter(([, v]) => v);
+  openOv(`<div class="row between" style="flex-wrap:nowrap"><h2>${esc(pName(p))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="row between"><span class="muted">${esc(pMeta(p))}</span><b class="num" style="font-size:20px">${+p.price ? money(p.price) : esc(t('negotiable'))}</b></div>
+    ${p.photos?.length ? `<div class="gallery">${p.photos.map(ph => `<img src="${esc(photoUrl(ph))}" alt="${esc(pName(p))}" loading="lazy">`).join('')}</div>` : ''}
+    ${specs.length ? `<dl class="specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+    ${p.note ? `<p class="small" style="color:var(--warn);margin:0">${esc(p.note)}</p>` : ''}`);
 }
 async function viewIdPhoto(path){
   if (!path) return;
@@ -298,7 +303,7 @@ function renderSale(){
       const ph = p.photos?.[0];
       return `<div class="pcard ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
         <div class="ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : esc(t('cust_no_photo'))}</div>
-        ${p.photos?.length > 1 ? `<button type="button" class="gal" data-gal="${p.id}">${esc(t('photos'))} ${p.photos.length}</button>` : ''}
+        <button type="button" class="gal" data-gal="${p.id}" aria-label="${esc(t('details'))}">${esc(t('details'))}${p.photos?.length > 1 ? ' · ' + p.photos.length : ''}</button>
         <div class="bd"><span class="nm">${esc(pName(p))}</span><span class="meta">${esc(pMeta(p))}</span>
         ${p.note ? `<span class="meta" style="color:var(--warn)">${esc(p.note)}</span>` : ''}
         <span class="pr"><span class="num">${+p.price ? money(p.price) : esc(t('negotiable'))}</span>${tag}</span></div></div>`;
@@ -397,11 +402,11 @@ $('p-list').onclick = async e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const p = S.products.find(x => x.id === b.closest('.item').dataset.id); if (!p) return;
   const act = b.dataset.act;
-  if (act === 'gal') return p.photos?.length ? showGallery(p) : (isAdmin() && openProduct(p));
+  if (act === 'gal') return showGallery(p);
   if (!isAdmin()) return;
   if (act === 'edit') return openProduct(p);
   if (act === 'del') return arm(b, async () => {
-    try { await q(sb.from('products').delete().eq('id', p.id)); if (p.photos?.length) sb.storage.from('products').remove(p.photos).catch(() => {}); toast(t('deleted')); await reload('products'); } catch(err){ fail(err); }
+    try { await q(sb.from('products').delete().eq('id', p.id)); if (p.photos?.some(isOwnPhoto)) sb.storage.from('products').remove(p.photos.filter(isOwnPhoto)).catch(() => {}); toast(t('deleted')); await reload('products'); } catch(err){ fail(err); }
   });
   try { const nq = Math.max(0, (+p.qty || 0) + (act === 'inc' ? 1 : -1)); p.qty = nq; renderStock(); await q(sb.from('products').update({ qty:nq, updated_at:new Date().toISOString() }).eq('id', p.id)); } catch(err){ fail(err); reload('products'); }
 };
@@ -440,7 +445,7 @@ function openProduct(p){
       const data = { name:g('name'), type:g('type'), brand:g('brand'), year:g('year'), color:g('color'), engine:g('engine'), code:g('code'),
         price:Math.max(0, +g('price') || 0), qty:Math.max(0, Math.round(+g('qty') || 0)), note:g('note'), photos:paths, updated_at:new Date().toISOString() };
       if (p) await q(sb.from('products').update(data).eq('id', p.id)); else await q(sb.from('products').insert(data));
-      const removed = (v.photos || []).filter(x => !paths.includes(x));
+      const removed = (v.photos || []).filter(x => !paths.includes(x) && isOwnPhoto(x));
       if (removed.length) sb.storage.from('products').remove(removed).catch(() => {});
       closeOv(); toast(t('saved')); await reload('products');
     } catch(err){ fail(err); btn.disabled = false; }
@@ -468,19 +473,27 @@ function fillRates(setPrice = true){
   $('r-rate').innerHTML = (x?.rates || []).map((r, i) => `<option value="${i}" ${String(i) === cur ? 'selected' : ''}>${esc(rateLabel(r))} — ${money(r.p)}</option>`).join('') + `<option value="x" ${cur === 'x' ? 'selected' : ''}>${esc(t('other_duration'))}</option>`;
   if (setPrice || $('r-price').value === '') { const r = x?.rates?.[+$('r-rate').value]; if (r) $('r-price').value = r.p; }
 }
+const stockLabel = p => [pName(p), p.color, p.year].filter(Boolean).join(' · ');
+function unitOptions(type){
+  const busy = new Set(S.rentals.filter(r => r.status === 'active').flatMap(r => [r.unit_id && 'f:' + r.unit_id, r.product_id && 'p:' + r.product_id]).filter(Boolean));
+  const byLabel = (a, b) => a.label.localeCompare(b.label, undefined, { numeric:true });
+  const fleet = S.fleet.filter(f => f.type === type).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).sort(byLabel);
+  const stock = S.products.filter(p => p.type === type && +p.qty > 0).map(p => ({ key:'p:' + p.id, label:stockLabel(p) })).sort(byLabel);
+  return { busy, groups:[['grp_fleet', fleet], ['grp_stock', stock]].filter(([, l]) => l.length) };
+}
 function fillUnits(){
   const x = curTariff(), cur = $('r-unit').value;
-  const busy = new Set(S.rentals.filter(r => r.status === 'active' && r.unit_id).map(r => r.unit_id));
-  const units = S.fleet.filter(f => x && f.type === x.type).sort((a, b) => fleetLabel(a).localeCompare(fleetLabel(b), undefined, { numeric:true }));
-  $('r-unit').innerHTML = `<option value="">${esc(t('choose_unit'))}</option>` + units.map(f => `<option value="${f.id}" ${busy.has(f.id) ? 'disabled' : ''} ${f.id === cur && !busy.has(f.id) ? 'selected' : ''}>${esc(fleetLabel(f))}${busy.has(f.id) ? ' — ' + esc(t('rented_tag')) : ''}</option>`).join('');
-  $('r-unit-hint').hidden = !!units.length; $('r-unit-hint').textContent = t('unit_none');
+  const { busy, groups } = x ? unitOptions(x.type) : { busy:new Set(), groups:[] };
+  $('r-unit').innerHTML = `<option value="">${esc(t('choose_unit'))}</option>` + groups.map(([g, list]) => `<optgroup label="${esc(t(g))}">${list.map(u => `<option value="${u.key}" ${busy.has(u.key) ? 'disabled' : ''} ${u.key === cur && !busy.has(u.key) ? 'selected' : ''}>${esc(u.label)}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`).join('')}</optgroup>`).join('');
+  $('r-unit-hint').hidden = groups.length > 0; $('r-unit-hint').textContent = t('unit_none');
 }
 $('r-type').onchange = () => { $('r-rate').value = '0'; fillRates(true); fillUnits(); };
 $('r-rate').onchange = () => fillRates(true);
 $('r-save').onclick = async () => {
   const x = curTariff(); if (!x) return;
-  const f = S.fleet.find(y => y.id === $('r-unit').value);
-  if (S.fleet.some(y => y.type === x.type) && !f) { toast(t('need_unit')); return; }
+  const uv = $('r-unit').value, kind = uv.slice(0, 2), uid_ = uv.slice(2);
+  const f = kind === 'f:' ? S.fleet.find(y => y.id === uid_) : null, sp = kind === 'p:' ? S.products.find(y => y.id === uid_) : null;
+  if (unitOptions(x.type).groups.length && !f && !sp) { toast(t('need_unit')); return; }
   const btn = $('r-save'); btn.disabled = true;
   try {
     let cust = null;
@@ -488,7 +501,7 @@ $('r-save').onclick = async () => {
     if (!cust) { toast(t('need_customer')); return; }
     const rv = $('r-rate').value, r = x.rates?.[+rv];
     await q(sb.from('rentals').insert({ type:x.type, rate: rv === 'x' ? { other:true } : r ? { n:r.n, u:r.u, p:r.p } : null,
-      price:r2($('r-price').value), deposit:r2($('r-dep').value), unit_id:f?.id || null, unit_label:f ? fleetLabel(f) : '',
+      price:r2($('r-price').value), deposit:r2($('r-dep').value), unit_id:f?.id || null, product_id:sp?.id || null, unit_label:f ? fleetLabel(f) : sp ? stockLabel(sp) : '',
       customer_id:cust.id, customer_name:cust.name, phone:cust.phone, seller:$('r-seller').value, payment:$('r-pay').value, created_by:S.user?.name || '' }));
     $('r-dep').value = 0; $('r-unit').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
     await reload('rentals', 'customers');

@@ -309,3 +309,14 @@ insert into public.settings (id, sellers, tariffs) values (1,
     {"type":"escooter","rates":[{"n":30,"u":"m","p":20},{"n":1,"u":"h","p":30},{"n":2,"u":"h","p":50},{"n":3,"u":"h","p":65},{"n":1,"u":"d","p":90},{"n":3,"u":"d","p":270},{"n":1,"u":"w","p":550}]},
     {"type":"emoped","rates":[{"n":30,"u":"m","p":20},{"n":1,"u":"h","p":30},{"n":2,"u":"h","p":50},{"n":3,"u":"h","p":65},{"n":1,"u":"d","p":90},{"n":3,"u":"d","p":270},{"n":1,"u":"w","p":550}]}]'::jsonb)
 on conflict (id) do nothing;
+
+-- ---------- v2: specs from easyride.ge, renting units straight from stock ----------
+alter table public.products add column if not exists specs jsonb not null default '{}';
+alter table public.products add column if not exists source_url text default '';
+alter table public.rentals add column if not exists product_id uuid references public.products(id) on delete set null;
+create unique index if not exists rentals_one_active_per_product
+  on public.rentals (product_id) where status = 'active' and product_id is not null;
+-- petrol moped rental rate (1 day 50 ₾, as in the rent-to-own example on easyride.ge); edit in the app
+update public.settings
+   set tariffs = tariffs || '[{"type":"moped","rates":[{"n":1,"u":"d","p":50}]}]'::jsonb
+ where id = 1 and not exists (select 1 from jsonb_array_elements(tariffs) e where e->>'type' = 'moped');

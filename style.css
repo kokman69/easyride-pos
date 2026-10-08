@@ -6,11 +6,13 @@
   --f-ui:"Noto Sans Georgian","Noto Sans","Noto Sans JP",system-ui,sans-serif;
   --f-num:"JetBrains Mono",ui-monospace,Menlo,monospace;
   --r:12px; --nav-h:0px; --safe-b:env(safe-area-inset-bottom,0px);
+  --chev:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%235d6b63' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#111814; --surface:#18221c; --ink:#e7ede8; --muted:#97a69d; --line:#2a3830;
   --green:#5cc391; --green-soft:#1d3428; --danger:#f08575; --danger-soft:#3a201c; --warn:#e8b64a; --scrim:rgba(0,0,0,.65);
+  --chev:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%2397a69d' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   color-scheme:dark}}
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -32,7 +34,7 @@ nav#tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
 .who{display:flex;align-items:center;gap:8px;font-size:12px;margin-left:auto}
 .role{font-weight:700;padding:2px 8px;border-radius:999px;background:var(--green-soft);color:var(--green)}
 .role.admin{background:var(--accent);color:var(--accent-ink)}
-select.lang{padding:5px 8px;font-size:12px}
+select.lang{font-size:12px}
 
 main{padding:16px 16px 48px;max-width:1280px;margin:0 auto}
 h2{font-size:20px;margin:0;text-wrap:balance}
@@ -44,6 +46,13 @@ h3{font-size:12px;margin:0;text-transform:uppercase;letter-spacing:.06em;color:v
 .stack{display:flex;flex-direction:column;gap:12px}
 input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0;width:100%}
 input[type=checkbox]{width:auto}
+/* own dropdown arrow: the native one renders as a white box in some dark themes */
+select{-webkit-appearance:none;-moz-appearance:none;appearance:none;cursor:pointer;padding-right:34px;
+  background-image:var(--chev);background-repeat:no-repeat;background-position:right 11px center;background-size:12px 8px;
+  text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+select::-ms-expand{display:none}
+select option,select optgroup{background:var(--surface);color:var(--ink)}
+select.lang{width:auto;max-width:130px;padding:6px 30px 6px 10px;background-position:right 9px center}
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,[role=button]:focus-visible,a:focus-visible{outline:2px solid var(--green);outline-offset:1px}
 label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600;min-width:0}
 label.f input,label.f select{font-size:14px;font-weight:400}
@@ -181,3 +190,11 @@ tr:last-child td{border-bottom:0}
 }
 @media (max-width:380px){.two{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:no-preference){.pcard,.btn,.chip{transition:border-color .12s,background .12s}}
+
+/* product details */
+.gallery{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;border-radius:10px}
+.gallery img{flex:0 0 100%;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;scroll-snap-align:center;background:var(--line)}
+.specs{display:grid;grid-template-columns:minmax(110px,max-content) 1fr;gap:6px 14px;margin:0;font-size:13px}
+.specs dt{color:var(--muted);font-weight:600}
+.specs dd{margin:0;min-width:0}
+optgroup{font-weight:700}
