@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ka">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Easyride სალარო</title>
+<meta name="theme-color" content="#16231d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Easyride">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Georgian:wght@400;600;700;800&family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="gate" class="gate">
+  <div class="panel pad stack">
+    <div class="row between">
+      <div class="brand">easy<b>ride</b><small data-i="app_sub"></small></div>
+      <select class="lang" id="lang-g" aria-label="Language"></select>
+    </div>
+    <div id="gate-body" class="stack"><div class="muted" data-i="loading"></div></div>
+  </div>
+</div>
+
+<div id="app" hidden>
+<header>
+  <div class="bar">
+    <div class="brand">easy<b>ride</b><small data-i="app_sub"></small></div>
+    <nav id="tabs" role="tablist"></nav>
+    <div class="who">
+      <span id="who-name"></span><span id="who-role" class="role"></span>
+      <select class="lang" id="lang-a" aria-label="Language"></select>
+      <button class="btn small" id="logout" data-i="logout"></button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div id="banner" class="banner" hidden></div>
+
+  <!-- SALE -->
+  <section id="v-sale">
+    <div class="pos">
+      <div class="stack">
+        <div class="row">
+          <input id="s-q" type="search" data-iph="search_items" style="flex:1;min-width:160px">
+          <button class="btn" id="s-custom" data-i="custom_item"></button>
+        </div>
+        <div class="chips" id="s-types"></div>
+        <div id="s-list" class="plist"></div>
+      </div>
+      <aside class="panel pad receipt stack" id="receipt">
+        <div class="sheet-head row between"><h2 data-i="cart"></h2><button class="btn" id="c-close" data-i="close"></button></div>
+        <div class="row between"><h3 data-i="new_sale"></h3><button class="btn ghost small" id="c-clear" data-i="clear"></button></div>
+        <div id="c-lines"></div>
+        <label class="f"><span data-i="extra_disc"></span><input id="c-disc" type="number" min="0" step="1" value="0" inputmode="decimal"></label>
+        <div class="formgrid two">
+          <label class="f"><span data-i="seller"></span><select id="c-seller"></select></label>
+          <label class="f"><span data-i="payment"></span><select id="c-pay"></select></label>
+        </div>
+        <div class="small muted" style="font-weight:600"><span data-i="customer"></span> <span data-i="optional"></span></div>
+        <div id="c-cust"></div>
+        <label class="f"><span data-i="note"></span><input id="c-note" type="text" data-iph="note_ph"></label>
+        <div class="tot"><span class="muted" id="c-sub"></span><span class="num" id="c-total">0 ₾</span></div>
+        <button class="btn primary big" id="c-save" disabled data-i="confirm_sale"></button>
+      </aside>
+    </div>
+    <button class="cartbar" id="cartbar" hidden><span id="cb-count"></span><span><span class="num" id="cb-total"></span> · <span data-i="open_cart"></span></span></button>
+  </section>
+
+  <!-- STOCK -->
+  <section id="v-stock" hidden>
+    <div class="stack">
+      <div class="row between"><h2 data-i="tab_stock"></h2><button class="btn primary" id="p-add" data-i="add_item"></button></div>
+      <div class="stats" id="p-stats"></div>
+      <div class="row">
+        <input id="p-q" type="search" data-iph="search_stock" style="flex:1;min-width:160px">
+        <label class="row small muted" style="flex-wrap:nowrap"><input type="checkbox" id="p-instock"> <span data-i="only_in_stock"></span></label>
+      </div>
+      <div class="chips" id="p-types"></div>
+      <div class="panel items" id="p-list"></div>
+    </div>
+  </section>
+
+  <!-- RENT -->
+  <section id="v-rent" hidden>
+    <div class="grid2">
+      <div class="panel pad stack">
+        <h3 data-i="rent_new"></h3>
+        <div class="formgrid two">
+          <label class="f"><span data-i="vehicle"></span><select id="r-type"></select></label>
+          <label class="f"><span data-i="tariff"></span><select id="r-rate"></select></label>
+        </div>
+        <label class="f"><span data-i="unit"></span><select id="r-unit"></select></label>
+        <div id="r-unit-hint" class="small muted" hidden></div>
+        <div class="formgrid two">
+          <label class="f"><span data-i="price"></span><input id="r-price" type="number" min="0" inputmode="decimal"></label>
+          <label class="f"><span data-i="deposit"></span><input id="r-dep" type="number" min="0" value="0" inputmode="decimal"></label>
+          <label class="f"><span data-i="seller"></span><select id="r-seller"></select></label>
+          <label class="f"><span data-i="payment"></span><select id="r-pay"></select></label>
+        </div>
+        <div class="small muted" style="font-weight:600" data-i="customer"></div>
+        <div id="r-cust"></div>
+        <button class="btn primary big" id="r-save" data-i="start_rent"></button>
+      </div>
+      <div class="panel pad stack">
+        <h3 data-i="rent_active"></h3>
+        <div id="r-active"></div>
+      </div>
+    </div>
+    <div class="panel tw" style="margin-top:16px" id="r-history"></div>
+  </section>
+
+  <!-- CUSTOMERS -->
+  <section id="v-customers" hidden>
+    <div class="stack">
+      <div class="row between"><h2 data-i="tab_customers"></h2><button class="btn primary" id="k-add" data-i="cust_new"></button></div>
+      <input id="k-q" type="search" data-iph="cust_search_ph">
+      <div class="panel items" id="k-list"></div>
+    </div>
+  </section>
+
+  <!-- REPORT -->
+  <section id="v-report" hidden>
+    <div class="stack">
+      <h2 data-i="tab_report"></h2>
+      <div class="chips" id="rp-period"></div>
+      <div class="row" style="flex-wrap:nowrap"><input type="date" id="rp-from"><span class="muted">—</span><input type="date" id="rp-to"></div>
+      <div class="stats" id="rp-stats"></div>
+      <div class="grid2">
+        <div class="panel"><div class="pad"><h3 data-i="by_seller"></h3></div><div class="tw" id="rp-sellers"></div></div>
+        <div class="panel"><div class="pad"><h3 data-i="by_type"></h3></div><div class="tw" id="rp-types"></div></div>
+      </div>
+      <div class="panel"><div class="pad"><h3 data-i="sales_log"></h3></div><div class="tw" id="rp-sales"></div></div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="v-settings" hidden>
+    <div class="grid2">
+      <div class="panel pad stack">
+        <h3 data-i="fleet_title"></h3>
+        <p class="small muted" style="margin:0" data-i="fleet_hint"></p>
+        <div id="st-fleet"></div>
+        <div class="formgrid two">
+          <label class="f"><span data-i="f_type"></span><select id="fl-type"></select></label>
+          <label class="f"><span data-i="f_name"></span><input id="fl-model" data-iph="fleet_model_ph"></label>
+          <label class="f"><span data-i="f_color"></span><input id="fl-color"></label>
+          <label class="f"><span data-i="fleet_num"></span><input id="fl-num" data-iph="fleet_num_ph"></label>
+        </div>
+        <button class="btn" id="fl-add" data-i="fleet_add"></button>
+      </div>
+      <div class="stack">
+        <div class="panel pad stack">
+          <h3 data-i="sellers"></h3>
+          <div id="st-sellers"></div>
+          <div class="row" style="flex-wrap:nowrap"><input id="st-new" type="text" data-iph="name_ph"><button class="btn" id="st-add" data-i="add"></button></div>
+        </div>
+        <div class="panel pad stack">
+          <h3 data-i="passwords_title"></h3>
+          <label class="f"><span data-i="admin_pw"></span><input id="pw-admin" type="password" autocomplete="new-password"></label>
+          <label class="f"><span data-i="cons_pw"></span><input id="pw-cons" type="password" autocomplete="new-password"></label>
+          <button class="btn primary" id="pw-save" data-i="change_pw"></button>
+          <p class="small muted" style="margin:0" data-i="pw_hint"></p>
+        </div>
+      </div>
+      <div class="panel pad stack">
+        <h3 data-i="tariffs_title"></h3>
+        <div id="st-tariffs"></div>
+        <button class="btn primary" id="st-save-t" data-i="save_tariffs"></button>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+
+<div id="ov" class="ov" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
