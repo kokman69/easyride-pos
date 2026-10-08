@@ -28,25 +28,46 @@ const RENTABLE = ['bike','ebike','escooter','emoped','moped'];
 const PAYS = ['cash','card','transfer','installment'];
 const tType = k => L['t_' + k] ? t('t_' + k) : (k || '');
 const tPay = k => L['pay_' + k] ? t('pay_' + k) : (k || '');
-function rateLabel(r){
+/* the same lookups in a chosen language (the agreement can be in another language than the screen) */
+const langIdx = lg => Math.max(0, LANGS.findIndex(l => l[0] === lg));
+const tL = (k, lg) => { const a = L[k]; return a ? (a[langIdx(lg)] ?? a[0]) : k; };
+function rateLabel(r, lg = LANG){
   if (!r) return '';
-  if (r.other) return t('other_duration');
+  if (r.other) return tL('other_duration', lg);
   const u = UNITS[r.u]; if (!u) return r.d || '';
-  const w = u[li()];
-  if (LANG === 'ja') return r.n + w;
-  if (LANG === 'en' && (r.u === 'd' || r.u === 'w') && r.n > 1) return r.n + ' ' + w + 's';
+  const w = u[langIdx(lg)];
+  if (lg === 'ja') return r.n + w;
+  if (lg === 'en' && (r.u === 'd' || r.u === 'w') && r.n > 1) return r.n + ' ' + w + 's';
   return r.n + ' ' + w;
 }
 function applyI18n(){
   document.documentElement.lang = LANG;
   document.querySelectorAll('[data-i]').forEach(el => el.textContent = t(el.dataset.i));
   document.querySelectorAll('[data-iph]').forEach(el => el.placeholder = t(el.dataset.iph));
+  document.querySelectorAll('[data-i-title]').forEach(el => { el.title = t(el.dataset.iTitle); el.setAttribute('aria-label', el.title); });
   ['lang-g','lang-a'].forEach(id => $(id).innerHTML = LANGS.map(([k,n]) => `<option value="${k}" ${k===LANG?'selected':''}>${n}</option>`).join(''));
   ['c-pay','r-pay'].forEach(id => { const v = $(id).value; $(id).innerHTML = PAYS.filter(p => id === 'c-pay' || p !== 'installment').map(p => `<option value="${p}" ${p===v?'selected':''}>${esc(tPay(p))}</option>`).join(''); });
 }
 function setLang(l){ LANG = l; ls.set('er-lang', l); applyI18n(); if (S.user) renderAll(); else renderGate(); }
 $('lang-g').onchange = e => setLang(e.target.value);
 $('lang-a').onchange = e => setLang(e.target.value);
+
+/* ================= light / dark ================= */
+const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>';
+const darkMQ = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+const curTheme = () => document.documentElement.dataset.theme || (darkMQ?.matches ? 'dark' : 'light');
+function paintTheme(){
+  const dark = curTheme() === 'dark';
+  document.querySelectorAll('.theme-btn').forEach(b => b.innerHTML = dark ? SUN : MOON);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#18221c' : '#16231d');
+}
+document.querySelectorAll('.theme-btn').forEach(b => b.onclick = () => {
+  const next = curTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next; ls.set('er-theme', next); paintTheme();
+});
+darkMQ?.addEventListener?.('change', paintTheme);
+paintTheme();
 
 /* ================= state ================= */
 const S = { products:[], sales:[], rentals:[], customers:[], fleet:[], settings:{ sellers:[], tariffs:[] },
@@ -190,11 +211,11 @@ function compressImage(file, max = 1400, quality = .82){
     img.src = url;
   });
 }
-async function uploadBlob(bucket, path, blob){
-  await q(sb.storage.from(bucket).upload(path, blob, { contentType:'image/jpeg', upsert:false, cacheControl:'31536000' }));
+async function uploadBlob(bucket, path, blob, type = 'image/jpeg'){
+  await q(sb.storage.from(bucket).upload(path, blob, { contentType:type, upsert:false, cacheControl:'31536000' }));
   return path;
 }
-function openOv(html){ $('ov').innerHTML = `<div class="panel pad stack">${html}</div>`; $('ov').hidden = false; document.body.style.overflow = 'hidden'; $('ov').querySelectorAll('[data-close]').forEach(b => b.onclick = closeOv); }
+function openOv(html, cls = ''){ $('ov').innerHTML = `<div class="panel pad stack ${cls}">${html}</div>`; $('ov').hidden = false; document.body.style.overflow = 'hidden'; $('ov').querySelectorAll('[data-close]').forEach(b => b.onclick = closeOv); }
 function closeOv(){ $('ov').hidden = true; $('ov').innerHTML = ''; document.body.style.overflow = ''; }
 $('ov').onclick = e => { if (e.target === $('ov')) closeOv(); };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('ov').hidden) closeOv(); else closeSheet(); } });
@@ -214,10 +235,77 @@ async function viewIdPhoto(path){
   catch(e){ fail(e); }
 }
 
+/* ================= document scan (passport / ID) ================= */
+let ocrWorker = null;
+const loadScript = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('load ' + src)); document.head.appendChild(s); });
+async function getOcr(){
+  if (ocrWorker) return ocrWorker;
+  if (!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+  ocrWorker = await window.Tesseract.createWorker('eng', 1);
+  return ocrWorker;
+}
+async function bitmapOf(blob){
+  if (window.createImageBitmap) { try { return await createImageBitmap(blob, { imageOrientation:'from-image' }); } catch(e){} }
+  return new Promise((res, rej) => { const i = new Image(), u = URL.createObjectURL(blob); i.onload = () => { URL.revokeObjectURL(u); res(i); }; i.onerror = rej; i.src = u; });
+}
+// the photo turned by rot degrees and scaled to ~width px, greyed where the browser can
+function prep(bmp, rot, width){
+  const W = bmp.width, H = bmp.height, sw = rot ? H : W, sh = rot ? W : H, k = Math.min(width / sw, 3);
+  const c = document.createElement('canvas'), x = c.getContext('2d');
+  c.width = Math.round(sw * k); c.height = Math.round(sh * k);
+  if ('filter' in x) x.filter = 'grayscale(1)';
+  x.translate(c.width / 2, c.height / 2); x.rotate(rot * Math.PI / 180);
+  x.drawImage(bmp, -W * k / 2, -H * k / 2, W * k, H * k);
+  return c;
+}
+function crop(c, top, h){
+  if (top === 0 && h === 1) return c;
+  const o = document.createElement('canvas'); o.width = c.width; o.height = Math.round(c.height * h);
+  o.getContext('2d').drawImage(c, 0, Math.round(c.height * top), c.width, o.height, 0, 0, o.width, o.height);
+  return o;
+}
+const goodMrz = r => r && r.checks.filter(Boolean).length >= 2 && (r.surname || r.birth);
+async function readDocument(file){
+  const w = await getOcr(), bmp = await bitmapOf(file);
+  const MRZ_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
+  const tries = [[.5, .5, 2000, 0], [0, 1, 1700, 0], [0, 1, 1700, 90], [0, 1, 1700, -90]];
+  await w.setParameters({ tessedit_char_whitelist:MRZ_CHARS });
+  let best = null;
+  for (const [top, h, width, rot] of tries) {
+    const { data } = await w.recognize(crop(prep(bmp, rot, width), top, h));
+    const r = window.MRZ.parse(data.text);
+    if (r && (!best || r.score > best.score)) best = r;
+    if (goodMrz(best) && best.valid) break;
+  }
+  if (goodMrz(best)) return best;
+  // front side of a Georgian ID card: at least the 11-digit personal number
+  await w.setParameters({ tessedit_char_whitelist:'' });
+  const { data } = await w.recognize(prep(bmp, 0, 1700));
+  const pn = window.MRZ.personalFromText(data.text);
+  return pn ? { partial:true, personal:pn, kind:'id', nationality:'GEO' } : null;
+}
+const titleCase = s => String(s || '').toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
+function ageOf(iso){
+  if (!iso) return null; const b = new Date(iso + 'T00:00'), n = new Date();
+  if (isNaN(b)) return null; let a = n.getFullYear() - b.getFullYear();
+  if (n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) a--;
+  return a;
+}
+const fmtDate = iso => iso ? String(iso).slice(0, 10).split('-').reverse().join('.') : '';
+function ageChip(c){
+  const a = ageOf(c?.birth_date), exp = c?.doc_expiry && c.doc_expiry < dayKey(new Date());
+  return (a != null ? `<span class="agechip ${a < 18 ? 'minor' : ''}">${esc(t('age_n').replace('{n}', a))}${a < 18 ? ' · ' + esc(t('minor_warn')) : ''}</span>` : '')
+    + (exp ? ` <span class="agechip bad">${esc(t('doc_expired'))}</span>` : '');
+}
+const custLine = c => [c.phone, c.id_number, c.nationality, c.birth_date && fmtDate(c.birth_date)].filter(Boolean).join(' · ');
+
 /* ================= customer picker ================= */
 const PICK = {};
 const custMatch = (c, qq) => [c.name, c.phone, c.id_number].join(' ').toLowerCase().includes(qq.toLowerCase());
-const freshPick = () => ({ mode:'search', id:null, draft:{ name:'', phone:'', id_number:'' }, photo:null, preview:'', q:'' });
+const EMPTY_DRAFT = () => ({ name:'', phone:'', id_number:'', birth_date:'', nationality:'', doc_type:'', doc_expiry:'' });
+const freshPick = () => ({ mode:'search', id:null, draft:EMPTY_DRAFT(), patch:null, photo:null, preview:'', q:'', msg:null });
+const scanBtn = () => `<label class="btn small scan">${esc(t('scan_id'))}<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>`;
+const msgHtml = st => st.msg ? `<div class="scanmsg ${st.msg[1]}">${esc(t(st.msg[0]))}</div>` : '';
 function mountPicker(boxId, force){
   const st = PICK[boxId] ??= freshPick();
   const box = $(boxId);
@@ -225,40 +313,80 @@ function mountPicker(boxId, force){
   if (!force && box.dataset.mode === st.mode && box.contains(document.activeElement)) { if (st.mode === 'search') pickerResults(boxId); return; }
   box.dataset.mode = st.mode;
   if (st.mode === 'selected') {
-    const c = S.customers.find(x => x.id === st.id); if (!c) { st.mode = 'search'; return mountPicker(boxId, true); }
-    box.innerHTML = `<div class="cust"><div class="row between" style="align-items:flex-start;flex-wrap:nowrap"><div style="min-width:0"><b>${esc(c.name)}</b>
-      <div class="small muted">${esc([c.phone, c.id_number].filter(Boolean).join(' · '))}</div>
+    const c0 = S.customers.find(x => x.id === st.id); if (!c0) { st.mode = 'search'; return mountPicker(boxId, true); }
+    const c = { ...c0, ...Object.fromEntries(Object.entries(st.patch || {}).filter(([k, v]) => v && !c0[k])) };
+    box.innerHTML = `<div class="cust"><div class="row between" style="align-items:flex-start;flex-wrap:nowrap"><div style="min-width:0"><b>${esc(c.name)}</b> ${ageChip(c)}
+      <div class="small muted">${esc(custLine(c))}</div>
       <div class="small" style="margin-top:4px">${st.photo ? `<span class="tag">${esc(t('cust_photo_new'))}</span>` : c.photo ? `<button type="button" class="btn ghost small" data-act="view" style="padding-left:0">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}</div></div>
       <button type="button" class="btn small" data-act="change">${esc(t('cust_change'))}</button></div>
+      ${msgHtml(st)}
       <label class="btn small" style="align-self:flex-start">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="file" hidden></label></div>`;
   } else if (st.mode === 'new') {
-    box.innerHTML = `<div class="cust"><div class="formgrid two">
-      <label class="f">${esc(t('cust_name'))}<input data-k="name" value="${esc(st.draft.name)}" autocomplete="off"></label>
-      <label class="f">${esc(t('cust_phone'))}<input data-k="phone" type="tel" value="${esc(st.draft.phone)}" autocomplete="off"></label>
-      <label class="f" style="grid-column:1/-1">${esc(t('cust_idnum'))}<input data-k="id_number" value="${esc(st.draft.id_number)}" autocomplete="off"></label></div>
-      <div class="row">${st.preview ? `<img class="thumb" src="${st.preview}" alt="">` : ''}<label class="btn small">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="file" hidden></label>
+    const d = st.draft;
+    box.innerHTML = `<div class="cust"><div class="scanrow">${scanBtn()}${st.preview ? `<img class="thumb" src="${st.preview}" alt="">` : ''}</div>${msgHtml(st)}
+      <div class="formgrid two">
+      <label class="f" style="grid-column:1/-1">${esc(t('cust_name'))}<input data-k="name" value="${esc(d.name)}" autocomplete="off"></label>
+      <label class="f">${esc(t('cust_idnum'))}<input data-k="id_number" value="${esc(d.id_number)}" autocomplete="off"></label>
+      <label class="f">${esc(t('cust_phone'))}<input data-k="phone" type="tel" value="${esc(d.phone)}" autocomplete="off"></label>
+      <label class="f">${esc(t('cust_birth'))} <span class="age-slot">${ageChip(d)}</span><input data-k="birth_date" type="date" value="${esc(d.birth_date)}"></label>
+      <label class="f">${esc(t('cust_nat'))}<input data-k="nationality" value="${esc(d.nationality)}" autocomplete="off" maxlength="40"></label>
+      <label class="f">${esc(t('cust_doc'))}<select data-k="doc_type"><option value=""></option>${['passport','id'].map(k => `<option value="${k}" ${d.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
+      <label class="f">${esc(t('doc_expiry'))}<input data-k="doc_expiry" type="date" value="${esc(d.doc_expiry)}"></label></div>
+      <div class="row"><label class="btn small">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="file" hidden></label>
       <button type="button" class="btn ghost small" data-act="back">${esc(t('cust_back'))}</button></div></div>`;
   } else {
     box.innerHTML = `<div class="cust"><div class="row" style="flex-wrap:nowrap"><input type="search" data-act="q" value="${esc(st.q)}" placeholder="${esc(t('cust_search_ph'))}">
-      <button type="button" class="btn small" data-act="new">${esc(t('cust_new'))}</button></div><div class="res"></div></div>`;
+      <button type="button" class="btn small" data-act="new">${esc(t('cust_new'))}</button></div>
+      <div class="scanrow">${scanBtn()}</div>${msgHtml(st)}<div class="res"></div></div>`;
     pickerResults(boxId);
   }
   if (!box.dataset.wired) {
     box.dataset.wired = 1;
     box.addEventListener('click', e => {
       const a = e.target.closest('[data-act]')?.dataset.act, s = PICK[boxId];
-      if (a === 'new') { const digits = /^[\d+ ]+$/.test(s.q); Object.assign(s, { mode:'new', photo:null, preview:'', draft:{ name: digits ? '' : s.q, phone: digits ? s.q : '', id_number:'' } }); mountPicker(boxId, true); box.querySelector('[data-k="name"]')?.focus(); }
-      else if (a === 'back' || a === 'change') { Object.assign(s, { mode:'search', id:null, photo:null, preview:'' }); mountPicker(boxId, true); }
-      else if (a === 'pick') { Object.assign(s, { mode:'selected', id:e.target.closest('[data-id]').dataset.id, photo:null, preview:'' }); mountPicker(boxId, true); }
+      if (a === 'new') { const digits = /^[\d+ ]+$/.test(s.q); Object.assign(s, { mode:'new', photo:null, preview:'', msg:null, draft:{ ...EMPTY_DRAFT(), name: digits ? '' : s.q, phone: digits ? s.q : '' } }); mountPicker(boxId, true); box.querySelector('[data-k="name"]')?.focus(); }
+      else if (a === 'back' || a === 'change') { Object.assign(s, { mode:'search', id:null, photo:null, preview:'', patch:null, msg:null }); mountPicker(boxId, true); }
+      else if (a === 'pick') { Object.assign(s, { mode:'selected', id:e.target.closest('[data-id]').dataset.id, photo:null, preview:'', patch:null, msg:null }); mountPicker(boxId, true); }
       else if (a === 'view') viewIdPhoto(S.customers.find(x => x.id === s.id)?.photo);
     });
-    box.addEventListener('input', e => { const s = PICK[boxId]; if (e.target.dataset.act === 'q') { s.q = e.target.value; pickerResults(boxId); } else if (e.target.dataset.k) s.draft[e.target.dataset.k] = e.target.value; });
+    box.addEventListener('input', e => {
+      const s = PICK[boxId], k = e.target.dataset.k;
+      if (e.target.dataset.act === 'q') { s.q = e.target.value; pickerResults(boxId); }
+      else if (k) { s.draft[k] = e.target.value; if (k === 'birth_date' || k === 'doc_expiry') { const sl = box.querySelector('.age-slot'); if (sl) sl.innerHTML = ageChip(s.draft); } }
+    });
     box.addEventListener('change', async e => {
-      if (e.target.dataset.act !== 'file' || !e.target.files[0]) return;
-      const s = PICK[boxId]; toast(t('photo_saving'));
-      try { s.photo = await compressImage(e.target.files[0], 1600, .8); s.preview = URL.createObjectURL(s.photo); mountPicker(boxId, true); } catch(err){ console.error(err); toast(t('photo_fail')); }
+      const act = e.target.dataset.act, file = e.target.files?.[0];
+      if (!file || (act !== 'file' && act !== 'scan')) return;
+      const s = PICK[boxId];
+      try { s.photo = await compressImage(file, 1600, .8); s.preview = URL.createObjectURL(s.photo); } catch(err){ console.error(err); toast(t('photo_fail')); }
+      if (act === 'file') { mountPicker(boxId, true); return; }
+      await scanInto(boxId, file);
     });
   }
+}
+async function scanInto(boxId, file){
+  const s = PICK[boxId];
+  if (s.mode === 'search') s.mode = 'new';
+  s.msg = ['scanning', '']; mountPicker(boxId, true);
+  let r = null;
+  try { r = await readDocument(file); } catch(err){ console.error(err); }
+  if (!r) { s.msg = ['scan_fail', 'bad']; if (s.mode !== 'selected') s.mode = 'new'; mountPicker(boxId, true); return; }
+  const data = {
+    name: r.partial ? '' : titleCase([r.given, r.surname].filter(Boolean).join(' ')),
+    id_number: r.personal || r.number || '', birth_date: r.birth || '', nationality: r.nationality || '',
+    doc_type: r.kind || '', doc_expiry: r.expiry || ''
+  };
+  const ids = [r.personal, r.number].filter(Boolean);
+  const known = S.customers.find(c => c.id_number && ids.includes(String(c.id_number).replace(/\s/g, '')));
+  if (known) Object.assign(s, { mode:'selected', id:known.id, patch:data, msg:['scan_existing', 'ok'] });
+  else {
+    const keep = s.mode === 'new' ? s.draft : EMPTY_DRAFT();
+    s.mode = 'new';
+    s.draft = { ...keep, ...Object.fromEntries(Object.entries(data).filter(([, v]) => v)) };
+    s.msg = r.partial || !r.valid ? ['scan_partial', ''] : ['scan_ok', 'ok'];
+  }
+  mountPicker(boxId, true);
+  if (s.mode === 'new') $(boxId).querySelector(s.draft.name ? '[data-k="phone"]' : '[data-k="name"]')?.focus();
 }
 function pickerResults(boxId){
   const st = PICK[boxId], res = $(boxId).querySelector('.res'); if (!res) return;
@@ -272,21 +400,27 @@ async function saveIdPhoto(custId, blob){
   await q(sb.from('customers').update({ photo: path }).eq('id', custId));
   return path;
 }
-/* returns {id,name,phone} or null; throws Error('name') when a new customer has no name */
+const CUST_EXTRA = ['birth_date','nationality','doc_type','doc_expiry'];
+const nullDates = d => { ['birth_date','doc_expiry'].forEach(k => { if (k in d && !d[k]) d[k] = null; }); return d; };
+/* returns the customer row or null; throws Error('name') when a new customer has no name */
 async function resolveCustomer(boxId){
   const st = PICK[boxId]; if (!st) return null;
   if (st.mode === 'selected') {
-    const c = S.customers.find(x => x.id === st.id); if (!c) return null;
+    let c = S.customers.find(x => x.id === st.id); if (!c) return null;
+    const fill = Object.fromEntries(Object.entries(st.patch || {}).filter(([k, v]) => v && (!c[k] || CUST_EXTRA.includes(k))));
+    delete fill.name;
+    if (Object.keys(fill).length) { c = await q(sb.from('customers').update(fill).eq('id', c.id).select().single()); }
     if (st.photo) await saveIdPhoto(c.id, st.photo);
-    return { id:c.id, name:c.name, phone:c.phone || '' };
+    return c;
   }
   if (st.mode === 'new') {
-    const d = { name: st.draft.name.trim(), phone: st.draft.phone.trim(), id_number: st.draft.id_number.trim() };
+    const d = Object.fromEntries(Object.entries(st.draft).map(([k, v]) => [k, String(v || '').trim()]));
+    d.nationality = d.nationality.toUpperCase();
     if (!d.name) { if (!d.phone && !d.id_number && !st.photo) return null; throw new Error('name'); }
-    const row = await q(sb.from('customers').insert({ ...d, created_by: S.user?.name || '' }).select().single());
+    const row = await q(sb.from('customers').insert(nullDates({ ...d, created_by: S.user?.name || '' })).select().single());
     S.customers.unshift(row);
     if (st.photo) await saveIdPhoto(row.id, st.photo);
-    return { id:row.id, name:row.name, phone:row.phone || '' };
+    return row;
   }
   return null;
 }
@@ -458,6 +592,14 @@ function openProduct(p){
 
 /* ================= rent ================= */
 const curTariff = () => (S.settings.tariffs || [])[+$('r-type').value];
+const UNIT_MS = { m:6e4, h:36e5, d:864e5, w:6048e5 };
+const toLocalInput = d => `${dayKey(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const fmtDT = ts => { const d = new Date(ts); return isNaN(d) ? '' : `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+function dueLabel(r){
+  if (!r.ends_at) return '';
+  const late = r.status === 'active' && new Date(r.ends_at) < new Date();
+  return ` · <span class="due ${late ? 'late' : ''}">${esc(t(late ? 'overdue' : 'return_by'))} ${fmtTs(r.ends_at)}</span>`;
+}
 function renderRent(){
   const T = S.settings.tariffs || [], curT = $('r-type').value;
   $('r-type').innerHTML = T.map((x, i) => `<option value="${i}" ${String(i) === curT ? 'selected' : ''}>${esc(tType(x.type))}</option>`).join('');
@@ -465,17 +607,26 @@ function renderRent(){
   $('r-seller').innerHTML = sellerOpts($('r-seller').value || S.user?.name);
   mountPicker('r-cust');
   const act = S.rentals.filter(r => r.status === 'active');
+  const cBtn = r => r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '';
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
-      <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit)}` : ''}</div></div>
+      <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit)}` : ''}</div>${cBtn(r)}</div>
       <div style="text-align:right"><div class="num">${money(r.price)}</div><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
     : `<div class="empty small">${esc(t('nothing_rented'))}</div>`;
   const done = S.rentals.filter(r => r.status !== 'active').slice(0, 50);
-  $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th></tr></thead><tbody>${done.map(r => `<tr><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(r.price)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
+  $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(r.price)}</td><td>${cBtn(r)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
+}
+function setEnd(force){
+  const el = $('r-end'), x = curTariff(), r = x?.rates?.[+$('r-rate').value];
+  if (el.dataset.manual && !force) return;
+  if (r && UNIT_MS[r.u]) el.value = toLocalInput(new Date(Date.now() + r.n * UNIT_MS[r.u]));
+  else if (!el.value) el.value = toLocalInput(new Date(Date.now() + 36e5));
 }
 function fillRates(setPrice = true){
   const x = curTariff(), cur = $('r-rate').value;
   $('r-rate').innerHTML = (x?.rates || []).map((r, i) => `<option value="${i}" ${String(i) === cur ? 'selected' : ''}>${esc(rateLabel(r))} — ${money(r.p)}</option>`).join('') + `<option value="x" ${cur === 'x' ? 'selected' : ''}>${esc(t('other_duration'))}</option>`;
   if (setPrice || $('r-price').value === '') { const r = x?.rates?.[+$('r-rate').value]; if (r) $('r-price').value = r.p; }
+  if (setPrice) delete $('r-end').dataset.manual;
+  setEnd(false);
 }
 const stockLabel = p => [pName(p), p.color, p.year].filter(Boolean).join(' · ');
 function unitOptions(type){
@@ -493,6 +644,72 @@ function fillUnits(){
 }
 $('r-type').onchange = () => { $('r-rate').value = '0'; fillRates(true); fillUnits(); };
 $('r-rate').onchange = () => fillRates(true);
+$('r-end').oninput = () => { $('r-end').dataset.manual = '1'; };
+
+/* ---------- rental agreement ---------- */
+const RU_LANG = ['RUS','BLR','UKR','KAZ','KGZ','UZB','ARM','AZE','TJK','TKM','MDA'];
+const langFor = nat => nat === 'GEO' ? 'ka' : RU_LANG.includes(nat) ? 'ru' : nat === 'JPN' ? 'ja' : nat ? 'en' : LANG;
+const dailyRate = type => (S.settings.tariffs || []).find(x => x.type === type)?.rates?.find(r => r.u === 'd' && +r.n === 1)?.p;
+/* raw = what is stored with the rental; turned into display strings in the reader's language */
+function contractStrings(raw, lg){
+  const pen = raw.daily ? `${money(r2(raw.daily * .1))} ${tL('per_hour', lg)}` : '';
+  return {
+    name: raw.name, doc: raw.doc, idnum: raw.idnum || '—', dob: fmtDate(raw.dob), phone: raw.phone,
+    vehicle: [tL('t_' + raw.type, lg), raw.unit].filter(Boolean).join(' · '),
+    period: rateLabel(raw.rate, lg), start: fmtDT(raw.start), end: raw.end ? fmtDT(raw.end) : '',
+    price: `${money(raw.price)}${raw.pay ? ' · ' + tL('pay_' + raw.pay, lg) : ''}`,
+    deposit: +raw.deposit ? money(raw.deposit) : '', pen, seller: raw.seller, signedAt: raw.signed_at ? fmtDT(raw.signed_at) : ''
+  };
+}
+const langChips = cur => `<div class="langpick noprint" role="group" aria-label="${esc(t('contract_lang'))}">${LANGS.map(([k, n]) => `<button type="button" class="chip" data-lang="${k}" aria-pressed="${k === cur}">${esc(n)}</button>`).join('')}</div>`;
+
+function signaturePad(box){
+  const cv = box.querySelector('canvas'), x = cv.getContext('2d'); let drawing = false, has = false, last = null;
+  const size = () => { const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.lineWidth = 2.6; x.lineCap = 'round'; x.lineJoin = 'round'; x.strokeStyle = '#10141a'; x.fillStyle = '#fff'; x.fillRect(0, 0, r.width, r.height); has = false; box.classList.remove('has'); };
+  const pt = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  cv.addEventListener('pointerdown', e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); drawing = true; last = pt(e); x.beginPath(); x.arc(last[0], last[1], 1.2, 0, 7); x.fillStyle = '#10141a'; x.fill(); has = true; box.classList.add('has'); });
+  cv.addEventListener('pointermove', e => { if (!drawing) return; const p = pt(e); x.beginPath(); x.moveTo(last[0], last[1]); x.lineTo(p[0], p[1]); x.stroke(); last = p; });
+  ['pointerup','pointercancel','pointerleave'].forEach(ev => cv.addEventListener(ev, () => { drawing = false; }));
+  requestAnimationFrame(size);
+  return { clear:size, has:() => has, blob:() => new Promise(r => cv.toBlob(r, 'image/png')) };
+}
+
+/* shows the agreement for signing; resolves with { lang, blob } or null when cancelled */
+function askSignature(raw){
+  return new Promise(resolve => {
+    let lg = langFor(raw.nat);
+    openOv(`<div class="row between noprint" style="flex-wrap:wrap;gap:8px"><div class="small muted" style="flex:1;min-width:200px">${esc(t('contract_for_customer'))}</div>${langChips(lg)}</div>
+      <div id="ct-body"></div>
+      <div class="stack"><div class="small" style="font-weight:700" id="ct-signlbl"></div>
+        <div class="sigpad" id="ct-pad"><canvas></canvas><span class="hint" id="ct-hint"></span></div></div>
+      <div class="cbar"><button type="button" class="btn" id="ct-clear"></button><button type="button" class="btn" id="ct-cancel"></button><button type="button" class="btn primary big" id="ct-ok" style="width:auto"></button></div>`, 'wide');
+    const pad = signaturePad($('ct-pad'));
+    const paint = () => {
+      $('ct-body').innerHTML = window.ER_CONTRACT.html(lg, contractStrings(raw, lg));
+      $('ct-signlbl').textContent = tL('sign_here', lg); $('ct-hint').textContent = tL('sign_here', lg);
+      $('ct-clear').textContent = tL('sign_clear', lg); $('ct-cancel').textContent = tL('cancel', lg); $('ct-ok').textContent = tL('sign_confirm', lg);
+      $('ov').querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === lg));
+    };
+    paint();
+    $('ov').querySelector('.langpick').onclick = e => { const b = e.target.closest('[data-lang]'); if (b) { lg = b.dataset.lang; paint(); } };
+    $('ct-clear').onclick = () => pad.clear();
+    const done = v => { $('ov').onclick = ovClick; closeOv(); resolve(v); };
+    $('ct-cancel').onclick = () => done(null);
+    const ovClick = $('ov').onclick; $('ov').onclick = null;   // a stray tap outside must not close it mid-signature
+    $('ct-ok').onclick = async () => { if (!pad.has()) { toast(tL('sign_need', lg)); return; } done({ lang:lg, blob: await pad.blob() }); };
+  });
+}
+async function viewContract(r){
+  const c = r.contract; if (!c?.raw) { toast(t('contract_none')); return; }
+  let lg = c.lang || LANG, url = '';
+  openOv(`<div class="row between noprint" style="flex-wrap:wrap;gap:8px">${langChips(lg)}<div class="row"><button type="button" class="btn small" id="cv-print">${esc(t('print'))}</button><button type="button" class="btn small" data-close>${esc(t('close'))}</button></div></div><div id="cv-body"></div>`, 'wide');
+  const paint = () => { $('cv-body').innerHTML = window.ER_CONTRACT.html(lg, contractStrings({ ...c.raw, signed_at:c.signed_at }, lg), url); $('ov').querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === lg)); };
+  paint();
+  $('ov').querySelector('.langpick').onclick = e => { const b = e.target.closest('[data-lang]'); if (b) { lg = b.dataset.lang; paint(); } };
+  $('cv-print').onclick = () => window.print();
+  if (r.signature) { try { url = (await q(sb.storage.from('id-photos').createSignedUrl(r.signature, 600))).signedUrl; if ($('cv-body')) paint(); } catch(e){ console.error(e); } }
+}
+
 $('r-save').onclick = async () => {
   const x = curTariff(); if (!x) return;
   const uv = $('r-unit').value, kind = uv.slice(0, 2), uid_ = uv.slice(2);
@@ -503,19 +720,34 @@ $('r-save').onclick = async () => {
     let cust = null;
     try { cust = await resolveCustomer('r-cust'); } catch(e){ if (e.message === 'name') { toast(t('cust_need_name')); return; } throw e; }
     if (!cust) { toast(t('need_customer')); return; }
-    const rv = $('r-rate').value, r = x.rates?.[+rv];
-    await q(sb.from('rentals').insert({ type:x.type, rate: rv === 'x' ? { other:true } : r ? { n:r.n, u:r.u, p:r.p } : null,
-      price:r2($('r-price').value), deposit:r2($('r-dep').value), unit_id:f?.id || null, product_id:sp?.id || null, unit_label:f ? fleetLabel(f) : sp ? stockLabel(sp) : '',
-      customer_id:cust.id, customer_name:cust.name, phone:cust.phone, seller:$('r-seller').value, payment:$('r-pay').value, created_by:S.user?.name || '' }));
-    $('r-dep').value = 0; $('r-unit').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
+    const rv = $('r-rate').value, r = x.rates?.[+rv], rate = rv === 'x' ? { other:true } : r ? { n:r.n, u:r.u, p:r.p } : null;
+    setEnd(false);   // start counts from now unless someone typed the return time
+    const start = new Date(), endV = $('r-end').value, end = endV ? new Date(endV) : null;
+    const unitLabel = f ? fleetLabel(f) : sp ? stockLabel(sp) : '';
+    const row = { type:x.type, rate, price:r2($('r-price').value), deposit:r2($('r-dep').value), unit_id:f?.id || null, product_id:sp?.id || null, unit_label:unitLabel,
+      customer_id:cust.id, customer_name:cust.name, phone:cust.phone || '', seller:$('r-seller').value, payment:$('r-pay').value, created_by:S.user?.name || '',
+      ends_at: end && !isNaN(end) ? end.toISOString() : null };
+    const raw = { name:cust.name, doc:cust.doc_type || 'other', idnum:cust.id_number || '', dob:cust.birth_date || '', phone:cust.phone || '', nat:cust.nationality || '',
+      type:x.type, unit:unitLabel, rate, start:start.toISOString(), end:row.ends_at, price:row.price, pay:row.payment, deposit:row.deposit, daily:dailyRate(x.type) || 0, seller:row.seller };
+    btn.disabled = false;
+    const sig = await askSignature(raw);
+    if (!sig) return;
+    btn.disabled = true;
+    const signedAt = new Date().toISOString();
+    const saved = await q(sb.from('rentals').insert({ ...row, contract:{ v:1, lang:sig.lang, signed_at:signedAt, raw } }).select().single());
+    try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).eq('id', saved.id)); }
+    catch(e){ console.error(e); toast(t('sign_fail')); }
+    $('r-dep').value = 0; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
     await reload('rentals', 'customers');
   } catch(e){ fail(e); } finally { btn.disabled = false; }
 };
 $('r-active').onclick = async e => {
+  const cb = e.target.closest('[data-act="contract"]'); if (cb) { viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); return; }
   const b = e.target.closest('[data-act="ret"]'); if (!b) return; b.disabled = true;
   try { await q(sb.from('rentals').update({ status:'returned', returned_at:new Date().toISOString() }).eq('id', b.closest('[data-id]').dataset.id)); toast(t('return_saved')); await reload('rentals'); }
   catch(err){ fail(err); b.disabled = false; }
 };
+$('r-history').onclick = e => { const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
 
 /* ================= customers ================= */
 function renderCustomers(){
@@ -524,7 +756,7 @@ function renderCustomers(){
   S.sales.forEach(s => s.customer_id && (nS[s.customer_id] = (nS[s.customer_id] || 0) + 1));
   S.rentals.forEach(r => r.customer_id && (nR[r.customer_id] = (nR[r.customer_id] || 0) + 1));
   $('k-list').innerHTML = !list.length ? `<div class="empty">${esc(t(S.customers.length ? 'nothing_found' : 'cust_none'))}</div>` : list.slice(0, 300).map(c => `<div class="citem" data-id="${c.id}">
-    <div style="min-width:0"><b>${esc(c.name)}</b><div class="small muted num">${esc([c.phone, c.id_number].filter(Boolean).join(' · ') || '—')}</div>
+    <div style="min-width:0"><b>${esc(c.name)}</b> ${ageChip(c)}<div class="small muted num">${esc(custLine(c) || '—')}</div>
       <div class="small muted">${esc(t('cust_purchases'))}: <span class="num">${nS[c.id] || 0}</span> · ${esc(t('cust_rentals'))}: <span class="num">${nR[c.id] || 0}</span></div></div>
     <div class="acts row" style="justify-content:flex-end;gap:2px">${c.photo ? `<button class="btn ghost small" data-act="view">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}
       <button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button>${isAdmin() ? `<button class="btn ghost small danger" data-act="del">${esc(t('remove'))}</button>` : ''}</div></div>`).join('');
@@ -545,7 +777,11 @@ function openCustomer(c){
   openOv(`<form id="kf" class="stack"><div class="row between"><h2>${esc(t(c ? 'edit_customer' : 'cust_new'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
     <div class="formgrid two"><label class="f">${esc(t('cust_name'))}<input id="kf-name" required value="${esc(c?.name || '')}"></label>
       <label class="f">${esc(t('cust_phone'))}<input id="kf-phone" type="tel" value="${esc(c?.phone || '')}"></label>
-      <label class="f" style="grid-column:1/-1">${esc(t('cust_idnum'))}<input id="kf-id" value="${esc(c?.id_number || '')}"></label></div>
+      <label class="f">${esc(t('cust_idnum'))}<input id="kf-id" value="${esc(c?.id_number || '')}"></label>
+      <label class="f">${esc(t('cust_birth'))}<input id="kf-birth" type="date" value="${esc(c?.birth_date || '')}"></label>
+      <label class="f">${esc(t('cust_nat'))}<input id="kf-nat" value="${esc(c?.nationality || '')}" maxlength="40"></label>
+      <label class="f">${esc(t('cust_doc'))}<select id="kf-doc"><option value=""></option>${['passport','id'].map(k => `<option value="${k}" ${c?.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
+      <label class="f">${esc(t('doc_expiry'))}<input id="kf-exp" type="date" value="${esc(c?.doc_expiry || '')}"></label></div>
     <div class="row"><span id="kf-ph">${c?.photo ? `<button type="button" class="btn ghost small" id="kf-view">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}</span>
       <label class="btn small">${esc(t('cust_photo_add'))}<input type="file" id="kf-file" accept="image/*" capture="environment" hidden></label></div>
     <button class="btn primary big" type="submit" id="kf-save">${esc(t('save'))}</button></form>`);
@@ -553,7 +789,8 @@ function openCustomer(c){
   $('kf-file').onchange = async e => { if (!e.target.files[0]) return; toast(t('photo_saving')); try { photo = await compressImage(e.target.files[0], 1600, .8); $('kf-ph').innerHTML = `<img class="thumb" src="${URL.createObjectURL(photo)}" alt="">`; } catch(err){ toast(t('photo_fail')); } };
   $('kf').onsubmit = async e => {
     e.preventDefault();
-    const d = { name:$('kf-name').value.trim(), phone:$('kf-phone').value.trim(), id_number:$('kf-id').value.trim() }; if (!d.name) return;
+    const d = nullDates({ name:$('kf-name').value.trim(), phone:$('kf-phone').value.trim(), id_number:$('kf-id').value.trim(),
+      birth_date:$('kf-birth').value, nationality:$('kf-nat').value.trim().toUpperCase(), doc_type:$('kf-doc').value, doc_expiry:$('kf-exp').value }); if (!d.name) return;
     const btn = $('kf-save'); btn.disabled = true;
     try {
       let id = c?.id;
@@ -595,15 +832,69 @@ function renderReport(){
   $('rp-sales').innerHTML = sales.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_items'))}</th><th>${esc(t('seller'))}</th><th>${esc(t('payment'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${sales.map(s => `<tr data-id="${s.id}"><td class="num">${fmtTs(s.created_at)}</td>
     <td>${(s.lines || []).map(l => `${esc(l.name)}${l.qty > 1 ? ` ×${l.qty}` : ''}${+l.unit_price !== +l.list_price && +l.list_price ? ` <span class="strike">${money(l.list_price)}</span>` : ''}${+l.pct ? ` <span class="tag low">−${+l.pct}%</span>` : ''}${l.vin ? ` <span class="small muted num">VIN ${esc(l.vin)}</span>` : ''}`).join('<br>')}${s.customer_name ? `<div class="small muted">${esc(s.customer_name)} ${esc(s.phone || '')}</div>` : ''}${s.note ? `<div class="small muted">${esc(s.note)}</div>` : ''}</td>
     <td>${esc(s.seller || '')}</td><td>${esc(tPay(s.payment))}</td><td class="r num"><b>${money(s.total, s.currency)}</b>${+s.extra_discount ? `<div class="small muted">−${money(s.extra_discount, s.currency)}</div>` : ''}</td>
-    <td><button class="btn ghost small danger" data-act="void">${esc(t('void'))}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
+    <td style="white-space:nowrap">${isAdmin() ? `<button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button><button class="btn ghost small danger" data-act="void">${esc(t('void'))}</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
 }
 $('rp-period').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; S.period = b.dataset.p; $('rp-from').value = ''; $('rp-to').value = ''; renderReport(); };
 $('rp-from').onchange = $('rp-to').onchange = () => { S.period = 'custom'; renderReport(); };
 $('rp-sales').onclick = e => {
+  const eb = e.target.closest('[data-act="edit"]'); if (eb && isAdmin()) { editSale(S.sales.find(x => x.id === eb.closest('tr').dataset.id)); return; }
   const b = e.target.closest('[data-act="void"]'); if (!b || !isAdmin()) return;
   const id = b.closest('tr').dataset.id;
   arm(b, async () => { try { await q(sb.rpc('void_sale', { p_id:id })); toast(t('voided')); await reload('sales', 'products'); } catch(err){ fail(err); } });
 };
+
+/* admin: fix any field of a recorded sale */
+function editSale(s){
+  if (!s) return;
+  let lines = (s.lines || []).map(l => ({ ...l }));
+  const cur = s.currency || 'GEL', d0 = new Date(s.created_at);
+  const opt = (list, v, lab) => { const all = list.includes(v) || !v ? list : [v, ...list]; return all.map(k => `<option value="${esc(k)}" ${k === v ? 'selected' : ''}>${esc(lab ? lab(k) : k)}</option>`).join(''); };
+  openOv(`<form id="se" class="stack"><div class="row between"><h2>${esc(t('edit_sale'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="formgrid two">
+      <label class="f">${esc(t('date_time'))}<input id="se-dt" type="datetime-local" required value="${toLocalInput(d0)}"></label>
+      <label class="f">${esc(t('seller'))}<select id="se-seller"><option value=""></option>${opt(S.settings.sellers || [], s.seller || '')}</select></label>
+      <label class="f">${esc(t('payment'))}<select id="se-pay"><option value=""></option>${opt(PAYS, s.payment || '', tPay)}</select></label>
+      <label class="f">${esc(t('currency'))}<select id="se-cur">${opt(Object.keys(CUR_SIGN), cur)}</select></label>
+      <label class="f">${esc(t('cust_name'))}<input id="se-cname" value="${esc(s.customer_name || '')}"></label>
+      <label class="f">${esc(t('cust_phone'))}<input id="se-phone" type="tel" value="${esc(s.phone || '')}"></label>
+      <label class="f" style="grid-column:1/-1">${esc(t('note'))}<input id="se-note" value="${esc(s.note || '')}"></label></div>
+    <div class="small muted" style="font-weight:600">${esc(t('lines'))}</div><div id="se-lines" class="stack" style="gap:10px"></div>
+    <button type="button" class="btn small" id="se-add" style="align-self:flex-start">${esc(t('line_add'))}</button>
+    <div class="formgrid two"><label class="f">${esc(t('extra_disc'))}<input id="se-extra" type="number" min="0" step="0.01" inputmode="decimal" value="${+s.extra_discount || 0}"></label>
+      <div class="f"><span>${esc(t('total'))}</span><b class="num" id="se-total" style="display:block;font-size:20px;padding-top:6px"></b></div></div>
+    <p class="small muted" style="margin:0">${esc(t('sale_edit_note'))}</p>
+    <button class="btn primary big" type="submit" id="se-save">${esc(t('save'))}</button></form>`);
+  const total = () => r2(Math.max(0, lines.reduce((a, l) => a + (+l.qty || 0) * (+l.unit_price || 0), 0) - (+$('se-extra').value || 0)));
+  const upd = () => { $('se-total').textContent = money(total(), $('se-cur').value); };
+  const paintLines = () => {
+    $('se-lines').innerHTML = lines.map((l, i) => `<div class="eline" data-i="${i}">
+      <input data-k="name" value="${esc(l.name || '')}" placeholder="${esc(t('col_item'))}" aria-label="${esc(t('col_item'))}" style="grid-column:1/-1">
+      <select data-k="type" aria-label="${esc(t('col_type'))}">${TYPE_KEYS.map(k => `<option value="${k}" ${k === (l.type || 'other') ? 'selected' : ''}>${esc(tType(k))}</option>`).join('')}</select>
+      <input data-k="qty" type="number" min="0" step="1" inputmode="numeric" value="${+l.qty || 0}" aria-label="${esc(t('qty'))}" class="num">
+      <input data-k="unit_price" type="number" min="0" step="0.01" inputmode="decimal" value="${+l.unit_price || 0}" aria-label="${esc(t('unit_price'))}" class="num">
+      <button type="button" class="btn ghost small danger" data-act="rm" aria-label="${esc(t('remove'))}">×</button></div>`).join('');
+    upd();
+  };
+  paintLines();
+  $('se-lines').oninput = $('se-lines').onchange = e => { const i = +e.target.closest('[data-i]')?.dataset.i, k = e.target.dataset.k; if (!k || isNaN(i)) return; lines[i][k] = ['qty','unit_price'].includes(k) ? +e.target.value : e.target.value; upd(); };
+  $('se-lines').onclick = e => { const b = e.target.closest('[data-act="rm"]'); if (!b) return; lines.splice(+b.closest('[data-i]').dataset.i, 1); paintLines(); };
+  $('se-add').onclick = () => { lines.push({ product_id:null, name:'', type:'other', list_price:0, unit_price:0, qty:1, pct:0 }); paintLines(); $('se-lines').querySelector('.eline:last-child input')?.focus(); };
+  $('se-extra').oninput = $('se-cur').onchange = upd;
+  $('se').onsubmit = async e => {
+    e.preventDefault();
+    const dt = new Date($('se-dt').value); if (isNaN(dt)) return;
+    const clean = lines.filter(l => String(l.name || '').trim() || +l.unit_price).map(l => {
+      const qty = +l.qty || 0, up = r2(l.unit_price), lp = Math.max(+l.list_price || 0, up);
+      return { ...l, name:String(l.name || '').trim(), qty, unit_price:up, list_price:lp, pct: lp && up < lp ? r2((1 - up / lp) * 100) : 0, total:r2(qty * up) };
+    });
+    const patch = { created_at:dt.toISOString(), day:dayKey(dt), lines:clean, list_total:r2(clean.reduce((a, l) => a + l.qty * l.list_price, 0)),
+      extra_discount:r2(+$('se-extra').value || 0), total:total(), seller:$('se-seller').value, payment:$('se-pay').value, currency:$('se-cur').value,
+      customer_name:$('se-cname').value.trim(), phone:$('se-phone').value.trim(), note:$('se-note').value.trim() };
+    const btn = $('se-save'); btn.disabled = true;
+    try { await q(sb.from('sales').update(patch).eq('id', s.id).select().single()); closeOv(); toast(t('saved')); await reload('sales'); }
+    catch(err){ fail(err); btn.disabled = false; }
+  };
+}
 
 /* ================= settings ================= */
 function renderSettings(){

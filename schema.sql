@@ -323,3 +323,17 @@ update public.settings
 
 -- ---------- v3: sales can be in GEL or USD ----------
 alter table public.sales add column if not exists currency text not null default 'GEL';
+
+-- ---------- v4: document details, return time, signed agreements, admin can fix sales ----------
+alter table public.customers add column if not exists birth_date  date;
+alter table public.customers add column if not exists nationality text default '';
+alter table public.customers add column if not exists doc_type    text default '';
+alter table public.customers add column if not exists doc_expiry  date;
+alter table public.rentals   add column if not exists ends_at   timestamptz;
+alter table public.rentals   add column if not exists contract  jsonb;      -- {v, lang, signed_at, raw:{…what the customer saw…}}
+alter table public.rentals   add column if not exists signature text default '';  -- PNG in the private "id-photos" bucket
+do $$ begin
+  if not exists (select 1 from pg_policies where policyname='sales_admin_update') then
+    create policy sales_admin_update on public.sales for update to authenticated
+      using (public.is_admin()) with check (public.is_admin()); end if;
+end $$;

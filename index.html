@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Georgian:wght@400;600;700;800&family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <link rel="stylesheet" href="style.css">
+<script>try{var th=localStorage.getItem('er-theme');if(th==='light'||th==='dark')document.documentElement.setAttribute('data-theme',th)}catch(e){}</script>
 </head>
 <body>
 
@@ -24,6 +25,7 @@
   <div class="panel pad stack">
     <div class="row between">
       <div class="brand">easy<b>ride</b><small data-i="app_sub"></small></div>
+      <button class="btn icon-btn theme-btn" type="button" data-i-title="theme_toggle"></button>
       <select class="lang" id="lang-g" aria-label="Language"></select>
     </div>
     <div id="gate-body" class="stack"><div class="muted" data-i="loading"></div></div>
@@ -37,6 +39,7 @@
     <nav id="tabs" role="tablist"></nav>
     <div class="who">
       <span id="who-name"></span><span id="who-role" class="role"></span>
+      <button class="btn icon-btn theme-btn" type="button" data-i-title="theme_toggle"></button>
       <select class="lang" id="lang-a" aria-label="Language"></select>
       <button class="btn small" id="logout" data-i="logout"></button>
     </div>
@@ -106,6 +109,7 @@
           <label class="f"><span data-i="deposit"></span><input id="r-dep" type="number" min="0" value="0" inputmode="decimal"></label>
           <label class="f"><span data-i="seller"></span><select id="r-seller"></select></label>
           <label class="f"><span data-i="payment"></span><select id="r-pay"></select></label>
+          <label class="f" style="grid-column:1/-1"><span data-i="return_by"></span><input id="r-end" type="datetime-local"></label>
         </div>
         <div class="small muted" style="font-weight:600" data-i="customer"></div>
         <div id="r-cust"></div>
@@ -188,6 +192,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="config.js"></script>
 <script src="i18n.js"></script>
+<script src="mrz.js"></script>
+<script src="contract.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
