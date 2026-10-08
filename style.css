@@ -157,7 +157,8 @@ tr:last-child td{border-bottom:0}
   main{padding:12px 12px calc(110px + var(--nav-h) + var(--safe-b))}
   nav#tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);
     padding:6px 4px calc(6px + var(--safe-b));gap:0;justify-content:space-around;overflow:visible}
-  nav#tabs button{flex-direction:column;gap:2px;font-size:10.5px;padding:6px 2px;flex:1;min-width:0;white-space:normal;line-height:1.1;text-align:center}
+  nav#tabs button{flex-direction:column;gap:2px;font-size:10px;padding:6px 1px;flex:1 1 0;min-width:0;line-height:1.1;text-align:center}
+  nav#tabs button span{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   nav#tabs button svg{width:22px;height:22px}
   nav#tabs button[aria-selected="true"]{background:none;color:var(--green)}
   .pos{grid-template-columns:minmax(0,1fr)}
