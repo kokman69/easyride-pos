@@ -320,3 +320,6 @@ create unique index if not exists rentals_one_active_per_product
 update public.settings
    set tariffs = tariffs || '[{"type":"moped","rates":[{"n":1,"u":"d","p":50}]}]'::jsonb
  where id = 1 and not exists (select 1 from jsonb_array_elements(tariffs) e where e->>'type' = 'moped');
+
+-- ---------- v3: sales can be in GEL or USD ----------
+alter table public.sales add column if not exists currency text not null default 'GEL';

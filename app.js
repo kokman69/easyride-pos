@@ -6,7 +6,11 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const r2 = n => Math.round((+n || 0) * 100) / 100;
-const money = n => { n = r2(n); const s = Math.abs(n).toFixed(n % 1 ? 2 : 0).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); return (n < 0 ? '−' : '') + s + ' ₾'; };
+const CUR_SIGN = { GEL:'₾', USD:'$', EUR:'€' };
+const money = (n, cur) => { n = r2(n); const s = Math.abs(n).toFixed(n % 1 ? 2 : 0).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); return (n < 0 ? '−' : '') + s + ' ' + (CUR_SIGN[cur || 'GEL'] || cur); };
+/* sums kept per currency, e.g. { GEL: 5200, USD: 800 } → "5 200 ₾ + 800 $" */
+const addCur = (acc, cur, n) => { cur = cur || 'GEL'; acc[cur] = (acc[cur] || 0) + (+n || 0); return acc; };
+const moneyMulti = acc => { const ks = Object.keys(acc).filter(k => acc[k]).sort((a, b) => (a !== 'GEL') - (b !== 'GEL')); return ks.length ? ks.map(k => money(acc[k], k)).join(' + ') : money(0); };
 const pad = n => String(n).padStart(2, '0');
 const dayKey = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 const fmtTs = ts => { const d = new Date(ts); return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
@@ -576,21 +580,21 @@ function renderReport(){
   $('rp-period').innerHTML = PERIODS.map(k => `<button class="chip" aria-pressed="${S.period === k}" data-p="${k}">${esc(t('p_' + k))}</button>`).join('');
   const [a, b] = periodRange(), inR = x => x.day >= a && x.day <= b;
   const sales = S.sales.filter(inR), rents = S.rentals.filter(inR);
-  const rev = sales.reduce((s, x) => s + (+x.total || 0), 0), rentRev = rents.reduce((s, x) => s + (+x.price || 0), 0);
-  const disc = sales.reduce((s, x) => s + Math.max(0, (+x.list_total || 0) - (+x.total || 0)), 0);
+  const rev = sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {}), rentRev = rents.reduce((s, x) => s + (+x.price || 0), 0);
+  const disc = sales.filter(x => (x.currency || 'GEL') === 'GEL').reduce((s, x) => s + Math.max(0, (+x.list_total || 0) - (+x.total || 0)), 0);
   const units = sales.reduce((s, x) => s + (x.lines || []).reduce((qq, l) => qq + (+l.qty || 0), 0), 0);
-  $('rp-stats').innerHTML = [['rs_sales_rev', money(rev)], ['rs_rent_rev', money(rentRev)], ['rs_count', sales.length + ' / ' + units], ['rs_disc', money(disc)]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('');
-  const bs = {}, g = k => bs[k] ??= { n:0, veh:0, sum:0, rent:0 };
-  sales.forEach(s => { const o = g(s.seller || '—'); o.n++; o.sum += +s.total || 0; o.veh += (s.lines || []).filter(l => VEH.includes(l.type)).reduce((qq, l) => qq + (+l.qty || 0), 0); });
+  $('rp-stats').innerHTML = [['rs_sales_rev', moneyMulti(rev)], ['rs_rent_rev', money(rentRev)], ['rs_count', sales.length + ' / ' + units], ['rs_disc', money(disc)]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('');
+  const bs = {}, g = k => bs[k] ??= { n:0, veh:0, sum:{}, rent:0 };
+  sales.forEach(s => { const o = g(s.seller || '—'); o.n++; addCur(o.sum, s.currency, s.total); o.veh += (s.lines || []).filter(l => VEH.includes(l.type)).reduce((qq, l) => qq + (+l.qty || 0), 0); });
   rents.forEach(r => { g(r.seller || '—').rent += +r.price || 0; });
-  const sk = Object.keys(bs).sort((x, y) => bs[y].sum - bs[x].sum);
-  $('rp-sellers').innerHTML = sk.length ? `<table><thead><tr><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_sales'))}</th><th class="r">${esc(t('col_veh'))}</th><th class="r">${esc(t('col_sum'))}</th><th class="r">${esc(t('col_rent'))}</th></tr></thead><tbody>${sk.map(k => `<tr><td>${esc(k)}</td><td class="r num">${bs[k].n}</td><td class="r num">${bs[k].veh}</td><td class="r num">${money(bs[k].sum)}</td><td class="r num">${money(bs[k].rent)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
-  const bt = {}; sales.forEach(s => (s.lines || []).forEach(l => { const o = bt[l.type || 'other'] ??= { q:0, sum:0 }; o.q += +l.qty || 0; o.sum += +l.total || 0; }));
-  const tk = Object.keys(bt).sort((x, y) => bt[y].sum - bt[x].sum);
-  $('rp-types').innerHTML = tk.length ? `<table><thead><tr><th>${esc(t('col_type'))}</th><th class="r">${esc(t('col_units'))}</th><th class="r">${esc(t('col_sum'))}*</th></tr></thead><tbody>${tk.map(k => `<tr><td>${esc(tType(k))}</td><td class="r num">${bt[k].q}</td><td class="r num">${money(bt[k].sum)}</td></tr>`).join('')}</tbody></table><div class="pad small muted">${esc(t('excl_extra'))}</div>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
+  const sk = Object.keys(bs).sort((x, y) => bs[y].n - bs[x].n);
+  $('rp-sellers').innerHTML = sk.length ? `<table><thead><tr><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_sales'))}</th><th class="r">${esc(t('col_veh'))}</th><th class="r">${esc(t('col_sum'))}</th><th class="r">${esc(t('col_rent'))}</th></tr></thead><tbody>${sk.map(k => `<tr><td>${esc(k)}</td><td class="r num">${bs[k].n}</td><td class="r num">${bs[k].veh}</td><td class="r num">${moneyMulti(bs[k].sum)}</td><td class="r num">${money(bs[k].rent)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
+  const bt = {}; sales.forEach(s => (s.lines || []).forEach(l => { const o = bt[l.type || 'other'] ??= { q:0, sum:{} }; o.q += +l.qty || 0; addCur(o.sum, s.currency, l.total); }));
+  const tk = Object.keys(bt).sort((x, y) => bt[y].q - bt[x].q);
+  $('rp-types').innerHTML = tk.length ? `<table><thead><tr><th>${esc(t('col_type'))}</th><th class="r">${esc(t('col_units'))}</th><th class="r">${esc(t('col_sum'))}*</th></tr></thead><tbody>${tk.map(k => `<tr><td>${esc(tType(k))}</td><td class="r num">${bt[k].q}</td><td class="r num">${moneyMulti(bt[k].sum)}</td></tr>`).join('')}</tbody></table><div class="pad small muted">${esc(t('excl_extra'))}</div>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
   $('rp-sales').innerHTML = sales.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_items'))}</th><th>${esc(t('seller'))}</th><th>${esc(t('payment'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${sales.map(s => `<tr data-id="${s.id}"><td class="num">${fmtTs(s.created_at)}</td>
-    <td>${(s.lines || []).map(l => `${esc(l.name)}${l.qty > 1 ? ` ×${l.qty}` : ''}${+l.unit_price !== +l.list_price && +l.list_price ? ` <span class="strike">${money(l.list_price)}</span>` : ''}${+l.pct ? ` <span class="tag low">−${+l.pct}%</span>` : ''}`).join('<br>')}${s.customer_name ? `<div class="small muted">${esc(s.customer_name)} ${esc(s.phone || '')}</div>` : ''}${s.note ? `<div class="small muted">${esc(s.note)}</div>` : ''}</td>
-    <td>${esc(s.seller || '')}</td><td>${esc(tPay(s.payment))}</td><td class="r num"><b>${money(s.total)}</b>${+s.extra_discount ? `<div class="small muted">−${money(s.extra_discount)}</div>` : ''}</td>
+    <td>${(s.lines || []).map(l => `${esc(l.name)}${l.qty > 1 ? ` ×${l.qty}` : ''}${+l.unit_price !== +l.list_price && +l.list_price ? ` <span class="strike">${money(l.list_price)}</span>` : ''}${+l.pct ? ` <span class="tag low">−${+l.pct}%</span>` : ''}${l.vin ? ` <span class="small muted num">VIN ${esc(l.vin)}</span>` : ''}`).join('<br>')}${s.customer_name ? `<div class="small muted">${esc(s.customer_name)} ${esc(s.phone || '')}</div>` : ''}${s.note ? `<div class="small muted">${esc(s.note)}</div>` : ''}</td>
+    <td>${esc(s.seller || '')}</td><td>${esc(tPay(s.payment))}</td><td class="r num"><b>${money(s.total, s.currency)}</b>${+s.extra_discount ? `<div class="small muted">−${money(s.extra_discount, s.currency)}</div>` : ''}</td>
     <td><button class="btn ghost small danger" data-act="void">${esc(t('void'))}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
 }
 $('rp-period').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; S.period = b.dataset.p; $('rp-from').value = ''; $('rp-to').value = ''; renderReport(); };
