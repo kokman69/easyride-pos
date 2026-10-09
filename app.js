@@ -82,6 +82,7 @@ function fail(e){
   if (e && e.code === '23505') return toast(t('already_rented'));
   if (e && (e.code === '42501' || /row-level security|not_allowed|permission/i.test(m))) return toast(t('no_rights'));
   if (/password_too_short/.test(m)) return toast(t('pw_short'));
+  if (/bad_pin/.test(m)) return toast(t('pin_wrong'));
   if (!navigator.onLine) return toast(t('offline'));
   toast(t('save_failed'));
 }
@@ -837,14 +838,29 @@ function renderReport(){
 $('rp-period').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; S.period = b.dataset.p; $('rp-from').value = ''; $('rp-to').value = ''; renderReport(); };
 $('rp-from').onchange = $('rp-to').onchange = () => { S.period = 'custom'; renderReport(); };
 $('rp-sales').onclick = e => {
-  const eb = e.target.closest('[data-act="edit"]'); if (eb && isAdmin()) { editSale(S.sales.find(x => x.id === eb.closest('tr').dataset.id)); return; }
+  const eb = e.target.closest('[data-act="edit"]'); if (eb && isAdmin()) { const sale = S.sales.find(x => x.id === eb.closest('tr').dataset.id); askPin(pin => editSale(sale, pin)); return; }
   const b = e.target.closest('[data-act="void"]'); if (!b || !isAdmin()) return;
   const id = b.closest('tr').dataset.id;
   arm(b, async () => { try { await q(sb.rpc('void_sale', { p_id:id })); toast(t('voided')); await reload('sales', 'products'); } catch(err){ fail(err); } });
 };
 
+/* every sale edit needs the admin PIN; the server checks it again when saving */
+function askPin(then){
+  openOv(`<form id="pin" class="stack" style="max-width:320px;margin:0 auto;width:100%"><div class="row between"><h2>${esc(t('pin_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <input id="pin-v" type="password" inputmode="numeric" autocomplete="off" maxlength="12" class="num" style="font-size:28px;text-align:center;letter-spacing:.4em" aria-label="${esc(t('pin_title'))}">
+    <div id="pin-err" class="err" hidden>${esc(t('pin_wrong'))}</div>
+    <button class="btn primary big" type="submit" id="pin-ok">${esc(t('pin_go'))}</button></form>`);
+  $('pin-v').focus();
+  $('pin').onsubmit = async e => {
+    e.preventDefault();
+    const pin = $('pin-v').value.trim(); if (!pin) return;
+    const btn = $('pin-ok'); btn.disabled = true; $('pin-err').hidden = true;
+    try { if (await q(sb.rpc('check_admin_pin', { p_pin:pin }))) { closeOv(); then(pin); return; } $('pin-err').hidden = false; $('pin-v').select(); }
+    catch(err){ fail(err); } finally { if ($('pin-ok')) btn.disabled = false; }
+  };
+}
 /* admin: fix any field of a recorded sale */
-function editSale(s){
+function editSale(s, pin){
   if (!s) return;
   let lines = (s.lines || []).map(l => ({ ...l }));
   const cur = s.currency || 'GEL', d0 = new Date(s.created_at);
@@ -891,7 +907,7 @@ function editSale(s){
       extra_discount:r2(+$('se-extra').value || 0), total:total(), seller:$('se-seller').value, payment:$('se-pay').value, currency:$('se-cur').value,
       customer_name:$('se-cname').value.trim(), phone:$('se-phone').value.trim(), note:$('se-note').value.trim() };
     const btn = $('se-save'); btn.disabled = true;
-    try { await q(sb.from('sales').update(patch).eq('id', s.id).select().single()); closeOv(); toast(t('saved')); await reload('sales'); }
+    try { await q(sb.rpc('edit_sale', { p_pin:pin, p_id:s.id, p_patch:patch })); closeOv(); toast(t('saved')); await reload('sales'); }
     catch(err){ fail(err); btn.disabled = false; }
   };
 }

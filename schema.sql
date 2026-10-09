@@ -337,3 +337,47 @@ do $$ begin
     create policy sales_admin_update on public.sales for update to authenticated
       using (public.is_admin()) with check (public.is_admin()); end if;
 end $$;
+
+-- ---------- v5: editing a sale needs the admin PIN, checked on the server ----------
+create extension if not exists pgcrypto with schema extensions;
+create table if not exists public.admin_pin (id int primary key default 1 check (id = 1), pin_hash text not null);
+alter table public.admin_pin enable row level security;   -- no policies: nobody can read it from the app
+revoke all on public.admin_pin from anon, authenticated;
+-- set / change the PIN (stored only as a bcrypt hash):
+--   insert into public.admin_pin values (1, extensions.crypt('NEW-PIN', extensions.gen_salt('bf')))
+--   on conflict (id) do update set pin_hash = excluded.pin_hash;
+create or replace function public.check_admin_pin(p_pin text) returns boolean
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  if not public.is_admin() then return false; end if;
+  perform pg_sleep(0.4);   -- slows down guessing
+  return exists (select 1 from public.admin_pin where id = 1 and pin_hash = crypt(coalesce(p_pin, ''), pin_hash));
+end $$;
+create or replace function public.edit_sale(p_pin text, p_id uuid, p_patch jsonb) returns public.sales
+language plpgsql security definer set search_path = public, extensions as $$
+declare r public.sales;
+begin
+  if not public.check_admin_pin(p_pin) then raise exception 'bad_pin'; end if;
+  update public.sales set
+    created_at     = coalesce((p_patch->>'created_at')::timestamptz, created_at),
+    day            = coalesce((p_patch->>'day')::date, day),
+    lines          = coalesce(p_patch->'lines', lines),
+    list_total     = coalesce((p_patch->>'list_total')::numeric, list_total),
+    extra_discount = coalesce((p_patch->>'extra_discount')::numeric, extra_discount),
+    total          = coalesce((p_patch->>'total')::numeric, total),
+    seller         = coalesce(p_patch->>'seller', seller),
+    payment        = coalesce(p_patch->>'payment', payment),
+    currency       = coalesce(p_patch->>'currency', currency),
+    customer_name  = coalesce(p_patch->>'customer_name', customer_name),
+    phone          = coalesce(p_patch->>'phone', phone),
+    note           = coalesce(p_patch->>'note', note)
+  where id = p_id returning * into r;
+  if r.id is null then raise exception 'not_found'; end if;
+  return r;
+end $$;
+revoke execute on function public.check_admin_pin(text) from public, anon;
+revoke execute on function public.edit_sale(text, uuid, jsonb) from public, anon;
+grant execute on function public.check_admin_pin(text) to authenticated;
+grant execute on function public.edit_sale(text, uuid, jsonb) to authenticated;
+-- sales are no longer editable directly, only through edit_sale()
+drop policy if exists sales_admin_update on public.sales;
