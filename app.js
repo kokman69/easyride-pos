@@ -718,11 +718,12 @@ const curTariff = () => (S.settings.tariffs || [])[+$('r-type').value];
 const UNIT_MS = { m:6e4, h:36e5, d:864e5, w:6048e5 };
 const toLocalInput = d => `${dayKey(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const fmtDT = ts => { const d = new Date(ts); return isNaN(d) ? '' : `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-/* late return: every started hour after the agreed end = 10% of the daily rate the customer signed for */
+/* late return: up to 30 min is free; after that every started hour = 10% of the daily rate the customer signed for
+   (31–90 min late = 1 h, 91–150 min = 2 h, …) */
 const rentDaily = r => +(r.contract?.raw?.daily) || +dailyRate(r.type) || 0;
 function lateCalc(r){
   if (!r.ends_at || r.status !== 'active') return { hours:0, daily:rentDaily(r), fee:0 };
-  const ms = Date.now() - new Date(r.ends_at), hours = ms > 0 ? Math.ceil(ms / 36e5) : 0, daily = rentDaily(r);
+  const ms = Date.now() - new Date(r.ends_at) - 30 * 6e4, hours = ms > 0 ? Math.ceil(ms / 36e5) : 0, daily = rentDaily(r);   // first 30 min are free
   return { hours, daily, fee:r2(hours * daily * 0.1) };
 }
 const rentSum = r => r2((+r.price || 0) + (+r.late_fee || 0));

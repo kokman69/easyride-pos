@@ -702,3 +702,22 @@ update public.settings
  where id = 1;
 update public.rentals set contract = jsonb_set(contract, '{raw,daily}', '60')
  where type = 'moped' and contract is not null and (contract->'raw'->>'daily')::numeric = 50;
+
+-- ---------- v9: late fee — up to 30 minutes late is free; after that every started hour counts ----------
+create or replace function public.rental_late(p_id uuid) returns json
+language plpgsql stable security definer set search_path = public as $$
+declare r public.rentals; v_daily numeric; v_h int := 0;
+begin
+  if not public.is_staff() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  select * into r from public.rentals where id = p_id;
+  if r.id is null then raise exception 'not_found'; end if;
+  v_daily := nullif((r.contract -> 'raw' ->> 'daily')::numeric, 0);
+  if v_daily is null then
+    select (rt ->> 'p')::numeric into v_daily from public.settings s, jsonb_array_elements(s.tariffs) t, jsonb_array_elements(t -> 'rates') rt
+     where s.id = 1 and t ->> 'type' = r.type and rt ->> 'u' = 'd' and (rt ->> 'n')::int = 1 limit 1;
+  end if;
+  if r.ends_at is not null and now() > r.ends_at + interval '30 minutes' then
+    v_h := ceil(extract(epoch from now() - r.ends_at - interval '30 minutes') / 3600)::int;
+  end if;
+  return json_build_object('hours', v_h, 'daily', coalesce(v_daily, 0), 'fee', round(v_h * coalesce(v_daily, 0) * 0.10, 2));
+end $$;
