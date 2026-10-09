@@ -55,8 +55,10 @@
   <section id="v-sale">
     <div class="pos">
       <div class="stack">
+        <div class="chips seg" id="s-kind"></div>
         <div class="row">
-          <input id="s-q" type="search" data-iph="search_items" style="flex:1;min-width:160px">
+          <input id="s-q" type="search" data-iph="search_items" style="flex:1;min-width:160px" autocomplete="off">
+          <button class="btn primary" id="s-add-easy" data-i="easy_add" hidden></button>
           <button class="btn" id="s-custom" data-i="custom_item"></button>
         </div>
         <div class="chips" id="s-types"></div>
@@ -201,6 +203,7 @@
 <script src="i18n.js"></script>
 <script src="mrz.js"></script>
 <script src="contract.js"></script>
+<script src="report.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

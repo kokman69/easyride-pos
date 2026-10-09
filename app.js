@@ -438,11 +438,31 @@ async function resolveCustomer(boxId){
 function resetPicker(boxId){ PICK[boxId] = freshPick(); mountPicker(boxId, true); }
 
 /* ================= sale ================= */
+const EASY = ['accessory','part','service','other'];
+const isEasy = p => EASY.includes(p.type);
 function renderSale(){
-  const counts = {}; S.products.forEach(p => counts[p.type] = (counts[p.type] || 0) + 1);
+  const easy = S.sKind === 'easy';
+  $('s-kind').innerHTML = [['veh','kind_veh'],['easy','kind_easy']].map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${(S.sKind || 'veh') === k}">${esc(t(l))}</button>`).join('');
+  $('s-add-easy').hidden = !(easy && isAdmin());
+  $('s-q').placeholder = t(easy ? 'easy_search' : 'search_items');
+  const pool = S.products.filter(p => easy ? isEasy(p) : !isEasy(p));
+  const counts = {}; pool.forEach(p => counts[p.type] = (counts[p.type] || 0) + 1);
+  if (S.sType && !counts[S.sType]) S.sType = '';
   typeChips($('s-types'), S.sType, x => { S.sType = x; renderSale(); }, counts);
-  const qq = $('s-q').value.trim();
-  const list = S.products.filter(p => (!S.sType || p.type === S.sType) && match(p, qq)).sort((a, b) => ((b.qty > 0) - (a.qty > 0)) || pName(a).localeCompare(pName(b)));
+  const qq = $('s-q').value.trim(), ql = qq.toLowerCase();
+  const list = pool.filter(p => (!S.sType || p.type === S.sType) && match(p, qq)).sort((a, b) =>
+    (easy && qq ? (String(b.code || '').toLowerCase() === ql) - (String(a.code || '').toLowerCase() === ql) : 0) || ((b.qty > 0) - (a.qty > 0)) || pName(a).localeCompare(pName(b)));
+  $('s-list').classList.toggle('elist', easy);
+  if (easy && S.loaded) {
+    $('s-list').innerHTML = !list.length ? `<div class="empty">${esc(t(pool.length ? 'nothing_found' : 'easy_empty'))}</div>` : list.map(p => {
+      const inCart = S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0), left = (+p.qty || 0) - inCart;
+      return `<div class="erow ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
+        <span class="code num">${esc(p.code || '—')}</span><span class="nm">${esc(pName(p))}${p.color ? ` <span class="muted small">${esc(p.color)}</span>` : ''}</span>
+        <span class="num pr">${+p.price ? money(p.price) : '—'}</span><span class="tag ${left <= 0 ? 'out' : left <= 1 ? 'low' : ''}">${left <= 0 ? esc(t('out')) : left + ' ' + esc(t('pcs'))}</span>
+        ${isAdmin() ? `<button type="button" class="btn ghost small" data-edit="${p.id}">${esc(t('edit'))}</button>` : ''}</div>`;
+    }).join('');
+    renderCart(); return;
+  }
   $('s-list').innerHTML = !S.loaded ? `<div class="empty">${esc(t('loading'))}</div>`
     : !S.products.length ? `<div class="empty" style="grid-column:1/-1">${esc(t(isAdmin() ? 'stock_empty_admin' : 'stock_empty'))}</div>`
     : !list.length ? `<div class="empty" style="grid-column:1/-1">${esc(t('nothing_found'))}</div>`
@@ -460,6 +480,15 @@ function renderSale(){
   renderCart();
 }
 $('s-q').oninput = () => renderSale();
+$('s-kind').onclick = e => { const b = e.target.closest('[data-k]'); if (!b) return; S.sKind = b.dataset.k; S.sType = ''; $('s-q').value = ''; renderSale(); $('s-q').focus(); };
+$('s-add-easy').onclick = () => openProduct(null, { type:'accessory', qty:1 });
+// a scanner or typed code + Enter adds the item straight to the receipt
+$('s-q').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const qq = $('s-q').value.trim().toLowerCase(); if (!qq) return;
+  const p = S.products.find(x => String(x.code || '').toLowerCase() === qq);
+  if (p) { e.preventDefault(); addToCart(p.id); $('s-q').value = ''; renderSale(); }
+});
 function addToCart(id){
   const p = S.products.find(x => x.id === id); if (!p) return;
   const inCart = S.cart.filter(l => l.productId === p.id).reduce((a, l) => a + l.qty, 0);
@@ -470,9 +499,10 @@ function addToCart(id){
 }
 $('s-list').onclick = e => {
   const g = e.target.closest('[data-gal]'); if (g) { e.stopPropagation(); return showGallery(S.products.find(x => x.id === g.dataset.gal)); }
-  const c = e.target.closest('.pcard'); if (c && !c.classList.contains('dis')) addToCart(c.dataset.id);
+  const ed = e.target.closest('[data-edit]'); if (ed) { openProduct(S.products.find(p => p.id === ed.dataset.edit)); return; }
+  const c = e.target.closest('.pcard, .erow'); if (c && !c.classList.contains('dis')) addToCart(c.dataset.id);
 };
-$('s-list').onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('pcard')) { e.preventDefault(); if (!e.target.classList.contains('dis')) addToCart(e.target.dataset.id); } };
+$('s-list').onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && (e.target.classList.contains('pcard') || e.target.classList.contains('erow'))) { e.preventDefault(); if (!e.target.classList.contains('dis')) addToCart(e.target.dataset.id); } };
 $('s-custom').onclick = () => {
   S.cart.push({ key:uid(), productId:null, name:'', type:'other', listPrice:0, unitPrice:0, qty:1, pct:0, custom:true });
   openSheet(); renderCart(); const ins = $('c-lines').querySelectorAll('input[data-k="name"]'); ins[ins.length - 1]?.focus();
@@ -522,9 +552,11 @@ $('c-save').onclick = async () => {
     const x = cartTotals();
     const lines = S.cart.map(l => ({ product_id:l.productId, name:l.name.trim(), type:l.type, list_price:l.listPrice, unit_price:r2(l.unitPrice), qty:l.qty, pct:+l.pct || 0 }));
     await q(sb.rpc('record_sale', { p_lines:lines, p_extra:x.extra, p_seller:$('c-seller').value, p_payment:$('c-pay').value, p_customer:cust?.id || null, p_note:$('c-note').value.trim() }));
+    const repData = saleReportData({ lines, total:x.total, extra:x.extra, payment:$('c-pay').value, seller:$('c-seller').value, cust, note:$('c-note').value.trim(), date:new Date(), currency:'GEL' });
     S.cart = []; $('c-disc').value = 0; $('c-note').value = ''; resetPicker('c-cust'); closeSheet();
     toast(t('sale_saved') + ' · ' + money(x.total));
     await reload('products', 'sales', 'customers');
+    showReport('sale', repData);
   } catch(e){ fail(e); } finally { updTotals(); }
 };
 
@@ -560,8 +592,8 @@ $('p-list').onclick = async e => {
   try { const nq = Math.max(0, (+p.qty || 0) + (act === 'inc' ? 1 : -1)); p.qty = nq; renderStock(); await q(sb.from('products').update({ qty:nq, updated_at:new Date().toISOString() }).eq('id', p.id)); } catch(err){ fail(err); reload('products'); }
 };
 $('p-add').onclick = () => openProduct(null);
-function openProduct(p){
-  const v = p || { type:'moped', qty:1, photos:[] };
+function openProduct(p, preset){
+  const v = p || { type:'moped', qty:1, photos:[], ...preset };
   let photos = (v.photos || []).map(path => ({ path }));
   const fld = (k, lab, extra = '') => `<label class="f">${esc(t(lab))}<input id="pf-${k}" value="${esc(v[k] ?? '')}" ${extra}></label>`;
   openOv(`<form id="pf" class="stack"><div class="row between"><h2>${esc(t(p ? 'edit_item' : 'new_item'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
@@ -619,7 +651,7 @@ function renderRent(){
   mountPicker('r-cust');
   const act = S.rentals.filter(r => r.status === 'active');
   const cBtn = r => r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '';
-  const eBtn = () => isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '';
+  const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
       <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit)}` : ''}</div>${cBtn(r)}${eBtn()}</div>
       <div style="text-align:right"><div class="num">${money(r.price)}</div><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
@@ -751,16 +783,19 @@ $('r-save').onclick = async () => {
     catch(e){ console.error(e); toast(t('sign_fail')); }
     $('r-dep').value = 0; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
     await reload('rentals', 'customers');
+    showReport('rental', rentalReportData(S.rentals.find(y => y.id === saved.id) || { ...saved, contract:true }));
   } catch(e){ fail(e); } finally { btn.disabled = false; }
 };
 $('r-active').onclick = async e => {
   const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
+  const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; }
   const cb = e.target.closest('[data-act="contract"]'); if (cb) { viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); return; }
   const b = e.target.closest('[data-act="ret"]'); if (!b) return; b.disabled = true;
   try { await q(sb.from('rentals').update({ status:'returned', returned_at:new Date().toISOString() }).eq('id', b.closest('[data-id]').dataset.id)); toast(t('return_saved')); await reload('rentals'); }
   catch(err){ fail(err); b.disabled = false; }
 };
-$('r-history').onclick = e => { const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; } const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
+$('r-history').onclick = e => { const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
+  const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; } const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
 
 /* admin: fix a rental — same PIN as for sales, checked again on the server */
 function openRentalEdit(id){ if (!isAdmin()) return; const r = S.rentals.find(x => x.id === id); if (r) askPin(pin => editRental(r, pin)); }
@@ -798,6 +833,50 @@ function editRental(r, pin){
     const btn = $('re-save'); btn.disabled = true;
     try { await q(sb.rpc('edit_rental', { p_pin:pin, p_id:r.id, p_patch:patch })); closeOv(); toast(t('saved')); await reload('rentals'); }
     catch(err){ fail(err); btn.disabled = false; }
+  };
+}
+
+/* ================= WhatsApp-style reports ================= */
+const fmtD = d => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
+const fmtShort = ts => { const d = new Date(ts); return isNaN(d) ? '' : `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const repMoney = cur => n => { const v = r2(n); return `${v.toLocaleString('en-US', { maximumFractionDigits:2 })} ${cur === 'GEL' ? 'GEL' : cur}`; };
+function saleReportData({ lines, total, extra, payment, seller, cust, note, date, currency }){
+  const m = repMoney(currency || 'GEL');
+  return { date:fmtD(date), money:m, total, discount:+extra || 0, seller, note, buyer:cust?.name || '', nat:cust?.nationality || '',
+    payLabel: lg => payment ? tL('pay_' + payment, lg) : '',
+    lines: (lines || []).map(l => { const p = S.products.find(x => x.id === l.product_id); const qty = +l.qty || 1, price = +l.unit_price || 0;
+      return { name:l.name, code:p?.code || l.code || '', vin:l.vin || '', veh:VEH.includes(l.type), qty, price, sum:r2(l.total ?? qty * price), typeLabel: lg => tL('t_' + l.type, lg) }; }) };
+}
+function rentalReportData(r){
+  if (!r) return null;
+  const c = S.customers.find(x => x.id === r.customer_id) || {}, raw = r.contract?.raw || {};
+  return { item: lg => [tL('t_' + r.type, lg), r.unit_label].filter(Boolean).join(' · '), period: lg => rateLabel(r.rate, lg),
+    fee: repMoney('GEL')(r.price), payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? repMoney('GEL')(r.deposit) : '',
+    cust: r.customer_name || c.name || '', tel: r.phone || c.phone || '', nat: c.nationality || raw.nat || '',
+    docPhoto: !!c.photo, signed: !!r.contract, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
+}
+function repLangs(){ try { const v = JSON.parse(ls.get('er-rep-langs') || 'null'); if (Array.isArray(v) && v.length) return v; } catch(e){} return ['en', 'ja']; }
+function showReport(kind, data){
+  if (!data) return;
+  let langs = repLangs();
+  openOv(`<div class="row between"><h2>${esc(t('report_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="langpick" id="rp-langs">${window.ER_REPORT.langs.map(k => `<button type="button" class="chip" data-l="${k}"></button>`).join('')}</div>
+    <textarea id="rp-text" class="reptext" rows="14" spellcheck="false"></textarea>
+    <div class="row" style="gap:8px"><button type="button" class="btn primary big" id="rp-copy" style="flex:1;width:auto">${esc(t('copy'))}</button>
+      <a class="btn big wa" id="rp-wa" target="_blank" rel="noopener" style="flex:1;width:auto">${esc(t('send_wa'))}</a></div>`);
+  const paint = () => {
+    $('rp-langs').querySelectorAll('[data-l]').forEach(b => { b.textContent = window.ER_REPORT.FLAG[b.dataset.l]; b.setAttribute('aria-pressed', langs.includes(b.dataset.l)); });
+    $('rp-text').value = window.ER_REPORT.build(kind, data, window.ER_REPORT.langs.filter(l => langs.includes(l)));
+    $('rp-wa').href = 'https://wa.me/?text=' + encodeURIComponent($('rp-text').value);
+  };
+  paint();
+  $('rp-langs').onclick = e => { const b = e.target.closest('[data-l]'); if (!b) return; const l = b.dataset.l;
+    langs = langs.includes(l) ? (langs.length > 1 ? langs.filter(x => x !== l) : langs) : [...langs, l]; ls.set('er-rep-langs', JSON.stringify(langs)); paint(); };
+  $('rp-text').oninput = () => { $('rp-wa').href = 'https://wa.me/?text=' + encodeURIComponent($('rp-text').value); };
+  $('rp-copy').onclick = async () => {
+    const txt = $('rp-text').value;
+    try { await navigator.clipboard.writeText(txt); } catch(e){ $('rp-text').select(); document.execCommand('copy'); }
+    toast(t('copied'));
   };
 }
 
@@ -884,11 +963,12 @@ function renderReport(){
   $('rp-sales').innerHTML = sales.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_items'))}</th><th>${esc(t('seller'))}</th><th>${esc(t('payment'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${sales.map(s => `<tr data-id="${s.id}"><td class="num">${fmtTs(s.created_at)}</td>
     <td>${(s.lines || []).map(l => `${esc(l.name)}${l.qty > 1 ? ` ×${l.qty}` : ''}${+l.unit_price !== +l.list_price && +l.list_price ? ` <span class="strike">${money(l.list_price)}</span>` : ''}${+l.pct ? ` <span class="tag low">−${+l.pct}%</span>` : ''}${l.vin ? ` <span class="small muted num">VIN ${esc(l.vin)}</span>` : ''}`).join('<br>')}${s.customer_name ? `<div class="small muted">${esc(s.customer_name)} ${esc(s.phone || '')}</div>` : ''}${s.note ? `<div class="small muted">${esc(s.note)}</div>` : ''}</td>
     <td>${esc(s.seller || '')}</td><td>${esc(tPay(s.payment))}</td><td class="r num"><b>${money(s.total, s.currency)}</b>${+s.extra_discount ? `<div class="small muted">−${money(s.extra_discount, s.currency)}</div>` : ''}</td>
-    <td style="white-space:nowrap">${isAdmin() ? `<button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button><button class="btn ghost small danger" data-act="void">${esc(t('void'))}</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
+    <td style="white-space:nowrap"><button class="btn ghost small" data-act="srep">${esc(t('report_btn'))}</button>${isAdmin() ? `<button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button><button class="btn ghost small danger" data-act="void">${esc(t('void'))}</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
 }
 $('rp-period').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; S.period = b.dataset.p; $('rp-from').value = ''; $('rp-to').value = ''; renderReport(); };
 $('rp-from').onchange = $('rp-to').onchange = () => { S.period = 'custom'; renderReport(); };
 $('rp-sales').onclick = e => {
+  const sr = e.target.closest('[data-act="srep"]'); if (sr) { const s = S.sales.find(x => x.id === sr.closest('tr').dataset.id); if (s) showReport('sale', saleReportData({ lines:s.lines || [], total:s.total, extra:s.extra_discount, payment:s.payment, seller:s.seller, cust:S.customers.find(c => c.id === s.customer_id) || (s.customer_name ? { name:s.customer_name } : null), note:s.note, date:new Date(s.created_at), currency:s.currency || 'GEL' })); return; }
   const eb = e.target.closest('[data-act="edit"]'); if (eb && isAdmin()) { const sale = S.sales.find(x => x.id === eb.closest('tr').dataset.id); askPin(pin => editSale(sale, pin)); return; }
   const b = e.target.closest('[data-act="void"]'); if (!b || !isAdmin()) return;
   const id = b.closest('tr').dataset.id;

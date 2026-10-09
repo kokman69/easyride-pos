@@ -1,5 +1,15 @@
 /* Translations: [ქართული, English, Русский, 日本語] */
 window.I18N = {
+  "kind_veh": ["ტრანსპორტი","Vehicles","Транспорт","車両"],
+  "kind_easy": ["Easy Items","Easy Items","Easy Items","Easy Items"],
+  "easy_search": ["კოდი ან სახელი (Enter — ჩეკში)","Code or name (Enter adds it)","Код или название (Enter — в чек)","コードまたは名前（Enterで追加）"],
+  "easy_add": ["+ Easy Item","+ Easy Item","+ Easy Item","+ Easy Item"],
+  "easy_empty": ["Easy Items ჯერ არ არის. დაამატე „+ Easy Item“ ღილაკით: კოდი, სახელი, ფასი.","No Easy Items yet. Add one with “+ Easy Item”: code, name, price.","Easy Items пока нет. Добавьте через «+ Easy Item»: код, название, цена.","Easy Itemsはまだありません。「+ Easy Item」でコード・名前・価格を登録してください。"],
+  "report_btn": ["რეპორტი","Report","Отчёт","レポート"],
+  "report_title": ["რეპორტი ჯგუფისთვის","Report for the group","Отчёт для группы","グループ用レポート"],
+  "copy": ["კოპირება","Copy","Копировать","コピー"],
+  "copied": ["დაკოპირდა","Copied","Скопировано","コピーしました"],
+  "send_wa": ["WhatsApp-ში გაგზავნა","Send to WhatsApp","Отправить в WhatsApp","WhatsAppで送信"],
   "mode_full": ["სრული ვერსია","Full version","Полная версия","フル版"],
   "mode_simple": ["მარტივი ვერსია","Simple version","Простая версия","シンプル版"],
   "more_fields": ["დამატებით","More","Ещё","その他"],
