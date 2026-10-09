@@ -262,7 +262,7 @@ details.more>summary{cursor:pointer;color:var(--muted);font-weight:600;padding:6
 details.more>summary::-webkit-details-marker{display:none}
 details.more>summary::before{content:"＋ "}
 details.more[open]>summary::before{content:"－ "}
-html:not(.simple) details.more>summary{display:none}
+details.more>summary{display:none}
 details.more>div{margin-top:6px}
 
 /* ---------- simple version (phones / tablets): only sale + rental, big touch targets ---------- */
@@ -272,7 +272,7 @@ html.simple label.f{font-size:14px;font-weight:600}
 html.simple input,html.simple select,html.simple textarea{font-size:17px;min-height:50px;border-radius:10px}
 html.simple input[type=checkbox]{min-height:0}
 html.simple .btn.big{min-height:58px;font-size:18px;border-radius:12px}
-html.simple #s-custom,html.simple #s-types,html.simple #r-history{display:none}
+html.simple #s-types,html.simple #r-history{display:none}
 html.simple #v-rent .grid2{grid-template-columns:minmax(0,1fr);max-width:720px;margin:0 auto}
 html.simple #v-rent h3{font-size:18px}
 html.simple .pos{max-width:1100px;margin:0 auto}
@@ -315,3 +315,11 @@ html.simple .erow{padding:14px 16px;font-size:16px}
 .btn.mode-btn{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .langbtn{position:relative;overflow:hidden}
 .langbtn select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;min-height:0!important;padding:0;border:0}
+
+/* simple version sale: one form — drop-downs on top, the full receipt underneath, no catalogue grid */
+.spick{display:none}
+html.simple .spick{display:flex}
+html.simple #s-list,html.simple .cartbar,html.simple .sheet-head{display:none!important}
+html.simple .pos{grid-template-columns:minmax(0,1fr)!important;max-width:720px}
+html.simple .receipt{display:flex!important;position:static!important;inset:auto!important;z-index:auto;overflow:visible;
+  border:1px solid var(--line)!important;border-radius:var(--r)!important;padding:16px!important}

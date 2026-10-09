@@ -1,5 +1,10 @@
 /* Translations: [ქართული, English, Русский, 日本語] */
 window.I18N = {
+  "sp_type": ["ტიპი","Type","Тип","種類"],
+  "sp_model": ["მოდელი","Model","Модель","モデル"],
+  "sp_item": ["ნივთი","Item","Товар","商品"],
+  "sp_choose": ["— აირჩიე —","— choose —","— выберите —","— 選択 —"],
+  "sp_hint": ["არჩეული ჩეკში ემატება. ძებნის ველით სია იფილტრება.","The chosen item goes onto the receipt. Type above to filter the list.","Выбранное попадает в чек. Поиск выше фильтрует список.","選んだ商品はレシートに追加されます。上の検索で絞り込めます。"],
   "kind_veh": ["ტრანსპორტი","Vehicles","Транспорт","車両"],
   "kind_easy": ["Easy Items","Easy Items","Easy Items","Easy Items"],
   "easy_search": ["კოდი ან სახელი (Enter — ჩეკში)","Code or name (Enter adds it)","Код или название (Enter — в чек)","コードまたは名前（Enterで追加）"],

@@ -191,7 +191,7 @@ function paintMode(){
     ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></svg>';
   mb.title = lab; mb.setAttribute('aria-label', lab);
-  document.querySelectorAll('details.more').forEach(d => { if (!isSimple()) d.open = true; else if (!d.dataset.touched) d.open = false; });
+  document.querySelectorAll('details.more').forEach(d => { d.open = true; });
 }
 $('mode-btn').onclick = () => { document.documentElement.classList.toggle('simple'); ls.set('er-mode', isSimple() ? 'simple' : 'full'); document.querySelectorAll('details.more').forEach(d => delete d.dataset.touched); paintMode(); buildTabs(); render(); };
 document.querySelectorAll('details.more > summary').forEach(s => s.addEventListener('click', () => { s.parentElement.dataset.touched = 1; }));
@@ -445,7 +445,27 @@ function resetPicker(boxId){ PICK[boxId] = freshPick(); mountPicker(boxId, true)
 /* ================= sale ================= */
 const EASY = ['accessory','part','service','other'];
 const isEasy = p => EASY.includes(p.type);
+/* phones / tablets: pick from drop-downs instead of the catalogue grid */
+function renderSimplePick(){
+  const easy = S.sKind === 'easy', qq = $('s-q').value.trim();
+  const left = p => (+p.qty || 0) - S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0);
+  $('sp-veh').hidden = easy; $('sp-easy').hidden = !easy;
+  const avail = S.products.filter(p => (easy ? isEasy(p) : !isEasy(p)) && left(p) > 0);
+  if (easy) {
+    const list = avail.filter(p => match(p, qq)).sort((x, y) => String(x.code || '').localeCompare(String(y.code || ''), undefined, { numeric:true }) || pName(x).localeCompare(pName(y)));
+    $('sp-item').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([p.code, pName(p)].filter(Boolean).join(' — '))} · ${+p.price ? money(p.price) : '—'} · ${left(p)} ${esc(t('pcs'))}</option>`).join('');
+    return;
+  }
+  const types = VEH.filter(k => avail.some(p => p.type === k));
+  if (!types.includes(S.spType)) S.spType = types[0] || '';
+  $('sp-type').innerHTML = types.map(k => `<option value="${k}" ${k === S.spType ? 'selected' : ''}>${esc(tType(k))} (${avail.filter(p => p.type === k).length})</option>`).join('') || `<option value="">—</option>`;
+  const list = avail.filter(p => p.type === S.spType && match(p, qq)).sort((x, y) => pName(x).localeCompare(pName(y)));
+  $('sp-model').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([pName(p), p.color, p.year].filter(Boolean).join(' · '))} — ${+p.price ? money(p.price) : esc(t('negotiable'))}</option>`).join('');
+}
+$('sp-type').onchange = e => { S.spType = e.target.value; renderSale(); };
+['sp-model','sp-item'].forEach(id => $(id).onchange = e => { const v = e.target.value; if (!v) return; addToCart(v); e.target.value = ''; });
 function renderSale(){
+  if (isSimple()) renderSimplePick();
   const easy = S.sKind === 'easy';
   $('s-kind').innerHTML = [['veh','kind_veh'],['easy','kind_easy']].map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${(S.sKind || 'veh') === k}">${esc(t(l))}</button>`).join('');
   $('s-add-easy').hidden = !(easy && isAdmin());
