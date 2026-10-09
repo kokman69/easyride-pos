@@ -323,3 +323,5 @@ html.simple #s-list,html.simple .cartbar,html.simple .sheet-head{display:none!im
 html.simple .pos{grid-template-columns:minmax(0,1fr)!important;max-width:720px}
 html.simple .receipt{display:flex!important;position:static!important;inset:auto!important;z-index:auto;overflow:visible;
   border:1px solid var(--line)!important;border-radius:var(--r)!important;padding:16px!important}
+
+.req{color:var(--danger,#d33);font-weight:600}

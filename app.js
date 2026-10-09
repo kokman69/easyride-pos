@@ -445,6 +445,9 @@ function resetPicker(boxId){ PICK[boxId] = freshPick(); mountPicker(boxId, true)
 /* ================= sale ================= */
 const EASY = ['accessory','part','service','other'];
 const isEasy = p => EASY.includes(p.type);
+/* vehicles need the buyer with an ID photo; small goods are sold without a customer */
+const cartNeedsCust = () => S.cart.some(l => !EASY.includes(l.type));
+const hasIdPhoto = (boxId, c) => !!(PICK[boxId]?.photo || c?.photo);
 /* phones / tablets: pick from drop-downs instead of the catalogue grid */
 function renderSimplePick(){
   const easy = S.sKind === 'easy', qq = $('s-q').value.trim();
@@ -562,6 +565,7 @@ function updTotals(){
   $('c-total').textContent = money(x.total);
   $('c-sub').textContent = S.cart.length ? (saved > 0.004 && x.list ? `${t('discount')} ${money(saved)}` : `${n} ${t('units')}`) : '';
   $('c-save').disabled = !S.cart.length;
+  $('c-cust-wrap').hidden = !cartNeedsCust();
   $('cartbar').hidden = !S.cart.length; $('cb-count').textContent = `${n} ${t('units')}`; $('cb-total').textContent = money(x.total);
 }
 function openSheet(){ $('receipt').classList.add('open'); }
@@ -573,7 +577,13 @@ $('c-save').onclick = async () => {
   const btn = $('c-save'); btn.disabled = true;
   try {
     let cust = null;
-    try { cust = await resolveCustomer('c-cust'); } catch(e){ if (e.message === 'name') { toast(t('cust_need_name')); return; } throw e; }
+    if (cartNeedsCust()) {
+      const st = PICK['c-cust'], pre = st?.mode === 'selected' ? S.customers.find(c => c.id === st.id) : null;
+      if (!st || st.mode === 'search') { toast(t('need_customer')); return; }
+      if (!hasIdPhoto('c-cust', pre)) { toast(t('need_id_photo')); return; }
+      try { cust = await resolveCustomer('c-cust'); } catch(e){ if (e.message === 'name') { toast(t('cust_need_name')); return; } throw e; }
+      if (!cust) { toast(t('need_customer')); return; }
+    }
     const x = cartTotals();
     const lines = S.cart.map(l => ({ product_id:l.productId, name:l.name.trim(), type:l.type, list_price:l.listPrice, unit_price:r2(l.unitPrice), qty:l.qty, pct:+l.pct || 0 }));
     await q(sb.rpc('record_sale', { p_lines:lines, p_extra:x.extra, p_seller:$('c-seller').value, p_payment:$('c-pay').value, p_customer:cust?.id || null, p_note:$('c-note').value.trim() }));
@@ -787,6 +797,9 @@ $('r-save').onclick = async () => {
   const btn = $('r-save'); btn.disabled = true;
   try {
     let cust = null;
+    { const st = PICK['r-cust'], pre = st?.mode === 'selected' ? S.customers.find(c => c.id === st.id) : null;
+      if (!st || st.mode === 'search') { toast(t('need_customer')); return; }
+      if (!hasIdPhoto('r-cust', pre)) { toast(t('need_id_photo')); return; } }
     try { cust = await resolveCustomer('r-cust'); } catch(e){ if (e.message === 'name') { toast(t('cust_need_name')); return; } throw e; }
     if (!cust) { toast(t('need_customer')); return; }
     const rv = $('r-rate').value, r = x.rates?.[+rv], rate = rv === 'x' ? { other:true } : r ? { n:r.n, u:r.u, p:r.p } : null;
