@@ -1,5 +1,8 @@
 /* Translations: [ქართული, English, Русский, 日本語] */
 window.I18N = {
+  "mode_full": ["სრული ვერსია","Full version","Полная версия","フル版"],
+  "mode_simple": ["მარტივი ვერსია","Simple version","Простая версия","シンプル版"],
+  "more_fields": ["დამატებით","More","Ещё","その他"],
   "edit_rental": ["გაქირავების რედაქტირება","Edit rental","Изменить аренду","レンタルを編集"],
   "rent_status": ["სტატუსი","Status","Статус","状態"],
   "st_active": ["მიმდინარე","Active","Активна","貸出中"],

@@ -183,8 +183,18 @@ const ICONS = {
   report:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'
 };
+const isSimple = () => document.documentElement.classList.contains('simple');
+function paintMode(){
+  $('mode-btn').textContent = t(isSimple() ? 'mode_full' : 'mode_simple');
+  document.querySelectorAll('details.more').forEach(d => { if (!isSimple()) d.open = true; else if (!d.dataset.touched) d.open = false; });
+}
+$('mode-btn').onclick = () => { document.documentElement.classList.toggle('simple'); ls.set('er-mode', isSimple() ? 'simple' : 'full'); document.querySelectorAll('details.more').forEach(d => delete d.dataset.touched); paintMode(); buildTabs(); render(); };
+document.querySelectorAll('details.more > summary').forEach(s => s.addEventListener('click', () => { s.parentElement.dataset.touched = 1; }));
 function buildTabs(){
-  const tabs = isAdmin() ? ['sale','stock','rent','customers','report','settings'] : ['sale','stock','rent','customers'];
+  let tabs = isAdmin() ? ['sale','stock','rent','customers','report','settings'] : ['sale','stock','rent','customers'];
+  if (isSimple()) tabs = ['sale','rent'];
+  if (!tabs.includes(S.tab)) S.tab = 'sale';
+  paintMode();
   $('tabs').innerHTML = tabs.map(k => `<button data-tab="${k}" role="tab" aria-selected="${k===S.tab}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg><span>${esc(t('tab_' + k))}</span></button>`).join('');
   ['sale','stock','rent','customers','report','settings'].forEach(k => $('v-' + k).hidden = k !== S.tab);
   $('p-add').hidden = !isAdmin();

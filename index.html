@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Georgian:wght@400;600;700;800&family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <link rel="stylesheet" href="style.css">
+<script>try{var md=localStorage.getItem('er-mode');if(md==='simple'||(md!=='full'&&(matchMedia('(pointer:coarse)').matches||innerWidth<=1100)))document.documentElement.classList.add('simple')}catch(e){}</script>
 <script>try{var th=localStorage.getItem('er-theme');if(th==='light'||th==='dark')document.documentElement.setAttribute('data-theme',th)}catch(e){}</script>
 </head>
 <body>
@@ -39,6 +40,7 @@
     <nav id="tabs" role="tablist"></nav>
     <div class="who">
       <span id="who-name"></span><span id="who-role" class="role"></span>
+      <button class="btn small" type="button" id="mode-btn"></button>
       <button class="btn icon-btn theme-btn" type="button" data-i-title="theme_toggle"></button>
       <select class="lang" id="lang-a" aria-label="Language"></select>
       <button class="btn small" id="logout" data-i="logout"></button>
@@ -64,14 +66,16 @@
         <div class="sheet-head row between"><h2 data-i="cart"></h2><button class="btn" id="c-close" data-i="close"></button></div>
         <div class="row between"><h3 data-i="new_sale"></h3><button class="btn ghost small" id="c-clear" data-i="clear"></button></div>
         <div id="c-lines"></div>
-        <label class="f"><span data-i="extra_disc"></span><input id="c-disc" type="number" min="0" step="1" value="0" inputmode="decimal"></label>
         <div class="formgrid two">
-          <label class="f"><span data-i="seller"></span><select id="c-seller"></select></label>
           <label class="f"><span data-i="payment"></span><select id="c-pay"></select></label>
+          <label class="f"><span data-i="seller"></span><select id="c-seller"></select></label>
         </div>
-        <div class="small muted" style="font-weight:600"><span data-i="customer"></span> <span data-i="optional"></span></div>
-        <div id="c-cust"></div>
-        <label class="f"><span data-i="note"></span><input id="c-note" type="text" data-iph="note_ph"></label>
+        <details class="more"><summary data-i="more_fields"></summary><div class="stack">
+          <label class="f"><span data-i="extra_disc"></span><input id="c-disc" type="number" min="0" step="1" value="0" inputmode="decimal"></label>
+          <div class="small muted" style="font-weight:600"><span data-i="customer"></span> <span data-i="optional"></span></div>
+          <div id="c-cust"></div>
+          <label class="f"><span data-i="note"></span><input id="c-note" type="text" data-iph="note_ph"></label>
+        </div></details>
         <div class="tot"><span class="muted" id="c-sub"></span><span class="num" id="c-total">0 ₾</span></div>
         <button class="btn primary big" id="c-save" disabled data-i="confirm_sale"></button>
       </aside>
@@ -107,10 +111,13 @@
         <div class="formgrid two">
           <label class="f"><span data-i="price"></span><input id="r-price" type="number" min="0" inputmode="decimal"></label>
           <label class="f"><span data-i="deposit"></span><input id="r-dep" type="number" min="0" value="0" inputmode="decimal"></label>
-          <label class="f"><span data-i="seller"></span><select id="r-seller"></select></label>
-          <label class="f"><span data-i="payment"></span><select id="r-pay"></select></label>
-          <label class="f" style="grid-column:1/-1"><span data-i="return_by"></span><input id="r-end" type="datetime-local"></label>
+          <label class="f" style="grid-column:1/-1"><span data-i="payment"></span><select id="r-pay"></select></label>
         </div>
+        <details class="more"><summary data-i="more_fields"></summary>
+          <div class="formgrid two">
+            <label class="f"><span data-i="seller"></span><select id="r-seller"></select></label>
+            <label class="f"><span data-i="return_by"></span><input id="r-end" type="datetime-local"></label>
+          </div></details>
         <div class="small muted" style="font-weight:600" data-i="customer"></div>
         <div id="r-cust"></div>
         <button class="btn primary big" id="r-save" data-i="start_rent"></button>

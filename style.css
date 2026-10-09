@@ -256,3 +256,43 @@ optgroup{font-weight:700}
   .contract{font-size:11.5px;line-height:1.45;color:#000}
   .csum{background:#fff}
 }
+
+/* optional fields: always shown in the full version, folded away in the simple one */
+details.more>summary{cursor:pointer;color:var(--muted);font-weight:600;padding:6px 0;list-style:none}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"＋ "}
+details.more[open]>summary::before{content:"－ "}
+html:not(.simple) details.more>summary{display:none}
+details.more>div{margin-top:6px}
+
+/* ---------- simple version (phones / tablets): only sale + rental, big touch targets ---------- */
+html.simple body{font-size:16px}
+html.simple .brand small,html.simple #who-name{display:none}
+html.simple label.f{font-size:14px;font-weight:600}
+html.simple input,html.simple select,html.simple textarea{font-size:17px;min-height:50px;border-radius:10px}
+html.simple input[type=checkbox]{min-height:0}
+html.simple .btn.big{min-height:58px;font-size:18px;border-radius:12px}
+html.simple #s-custom,html.simple #s-types,html.simple #r-history{display:none}
+html.simple #v-rent .grid2{grid-template-columns:minmax(0,1fr);max-width:720px;margin:0 auto}
+html.simple #v-rent h3{font-size:18px}
+html.simple .pos{max-width:1100px;margin:0 auto}
+html.simple .sigpad canvas{height:240px}
+html.simple .contract{font-size:16px}
+@media (min-width:761px){
+  html.simple nav#tabs{justify-content:center}
+  html.simple nav#tabs button{font-size:16px;padding:10px 22px}
+}
+@media (max-width:760px){
+  html.simple nav#tabs button{font-size:13px;flex-direction:row;justify-content:center;gap:8px}
+  html.simple nav#tabs button svg{width:24px;height:24px}
+}
+@media (max-width:760px){
+  .who{gap:6px;flex-wrap:wrap;justify-content:flex-end;min-width:0;flex:1}
+  .who select.lang{max-width:96px}
+  #mode-btn{padding:6px 8px;font-size:11px}
+}
+html.simple .who .role{display:none}
+html.simple .plist{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+@media (min-width:761px){ html.simple .pos{grid-template-columns:minmax(0,1fr) 360px} }
+@media (max-width:760px){ html.simple .plist{grid-template-columns:repeat(2,minmax(0,1fr))} }
+html.simple header select,html.simple header input{min-height:0;font-size:12px;border-radius:8px}
