@@ -609,12 +609,13 @@ function renderRent(){
   mountPicker('r-cust');
   const act = S.rentals.filter(r => r.status === 'active');
   const cBtn = r => r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '';
+  const eBtn = () => isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '';
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
-      <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit)}` : ''}</div>${cBtn(r)}</div>
+      <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit)}` : ''}</div>${cBtn(r)}${eBtn()}</div>
       <div style="text-align:right"><div class="num">${money(r.price)}</div><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
     : `<div class="empty small">${esc(t('nothing_rented'))}</div>`;
   const done = S.rentals.filter(r => r.status !== 'active').slice(0, 50);
-  $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(r.price)}</td><td>${cBtn(r)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
+  $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(r.price)}</td><td style="white-space:nowrap">${cBtn(r)}${eBtn()}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
 }
 function setEnd(force){
   const el = $('r-end'), x = curTariff(), r = x?.rates?.[+$('r-rate').value];
@@ -743,12 +744,52 @@ $('r-save').onclick = async () => {
   } catch(e){ fail(e); } finally { btn.disabled = false; }
 };
 $('r-active').onclick = async e => {
+  const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
   const cb = e.target.closest('[data-act="contract"]'); if (cb) { viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); return; }
   const b = e.target.closest('[data-act="ret"]'); if (!b) return; b.disabled = true;
   try { await q(sb.from('rentals').update({ status:'returned', returned_at:new Date().toISOString() }).eq('id', b.closest('[data-id]').dataset.id)); toast(t('return_saved')); await reload('rentals'); }
   catch(err){ fail(err); b.disabled = false; }
 };
-$('r-history').onclick = e => { const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
+$('r-history').onclick = e => { const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; } const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
+
+/* admin: fix a rental — same PIN as for sales, checked again on the server */
+function openRentalEdit(id){ if (!isAdmin()) return; const r = S.rentals.find(x => x.id === id); if (r) askPin(pin => editRental(r, pin)); }
+function editRental(r, pin){
+  const opt = (list, v, lab) => { const all = list.includes(v) || !v ? list : [v, ...list]; return all.map(k => `<option value="${esc(k)}" ${k === v ? 'selected' : ''}>${esc(lab ? lab(k) : k)}</option>`).join(''); };
+  const rt = r.rate || {}, u0 = rt.other ? 'x' : (rt.u || 'h');
+  const loc = ts => ts ? toLocalInput(new Date(ts)) : '';
+  openOv(`<form id="re" class="stack"><div class="row between"><h2>${esc(t('edit_rental'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="formgrid two">
+      <label class="f">${esc(t('started'))}<input id="re-start" type="datetime-local" required value="${loc(r.created_at)}"></label>
+      <label class="f">${esc(t('return_by'))}<input id="re-end" type="datetime-local" value="${loc(r.ends_at)}"></label>
+      <label class="f">${esc(t('vehicle'))}<select id="re-type">${opt(RENTABLE, r.type, tType)}</select></label>
+      <label class="f">${esc(t('unit'))}<input id="re-unit" value="${esc(r.unit_label || '')}"></label>
+      <label class="f">${esc(t('tariff'))}<span class="row" style="flex-wrap:nowrap;gap:6px"><input id="re-n" type="number" min="1" step="1" inputmode="numeric" class="num" style="width:80px" value="${+rt.n || 1}">
+        <select id="re-u">${['m','h','d','w'].map(k => `<option value="${k}" ${k === u0 ? 'selected' : ''}>${esc(UNITS[k][li()])}</option>`).join('')}<option value="x" ${u0 === 'x' ? 'selected' : ''}>${esc(t('other_duration'))}</option></select></span></label>
+      <label class="f">${esc(t('price'))}<input id="re-price" type="number" min="0" step="0.01" inputmode="decimal" value="${+r.price || 0}"></label>
+      <label class="f">${esc(t('deposit'))}<input id="re-dep" type="number" min="0" step="0.01" inputmode="decimal" value="${+r.deposit || 0}"></label>
+      <label class="f">${esc(t('seller'))}<select id="re-seller"><option value=""></option>${opt(S.settings.sellers || [], r.seller || '')}</select></label>
+      <label class="f">${esc(t('payment'))}<select id="re-pay"><option value=""></option>${opt(PAYS, r.payment || '', tPay)}</select></label>
+      <label class="f">${esc(t('cust_name'))}<input id="re-cname" value="${esc(r.customer_name || '')}"></label>
+      <label class="f">${esc(t('cust_phone'))}<input id="re-phone" type="tel" value="${esc(r.phone || '')}"></label>
+      <label class="f">${esc(t('rent_status'))}<select id="re-status"><option value="active" ${r.status === 'active' ? 'selected' : ''}>${esc(t('st_active'))}</option><option value="returned" ${r.status !== 'active' ? 'selected' : ''}>${esc(t('returned_btn'))}</option></select></label>
+      <label class="f">${esc(t('returned_at'))}<input id="re-ret" type="datetime-local" value="${loc(r.returned_at)}"></label></div>
+    ${r.contract ? `<p class="small muted" style="margin:0">${esc(t('rental_edit_note'))}</p>` : ''}
+    <button class="btn primary big" type="submit" id="re-save">${esc(t('save'))}</button></form>`);
+  $('re').onsubmit = async e => {
+    e.preventDefault();
+    const start = new Date($('re-start').value); if (isNaN(start)) return;
+    const iso = v => { const d = v ? new Date(v) : null; return d && !isNaN(d) ? d.toISOString() : null; };
+    const u = $('re-u').value, price = r2($('re-price').value), status = $('re-status').value;
+    const patch = { created_at:start.toISOString(), day:dayKey(start), ends_at:iso($('re-end').value), type:$('re-type').value, unit_label:$('re-unit').value.trim(),
+      rate: u === 'x' ? { other:true } : { n:Math.max(1, +$('re-n').value || 1), u, p:price }, price, deposit:r2($('re-dep').value),
+      seller:$('re-seller').value, payment:$('re-pay').value, customer_name:$('re-cname').value.trim(), phone:$('re-phone').value.trim(),
+      status, returned_at: status === 'returned' ? (iso($('re-ret').value) || r.returned_at || new Date().toISOString()) : null };
+    const btn = $('re-save'); btn.disabled = true;
+    try { await q(sb.rpc('edit_rental', { p_pin:pin, p_id:r.id, p_patch:patch })); closeOv(); toast(t('saved')); await reload('rentals'); }
+    catch(err){ fail(err); btn.disabled = false; }
+  };
+}
 
 /* ================= customers ================= */
 function renderCustomers(){

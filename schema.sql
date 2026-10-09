@@ -381,3 +381,31 @@ grant execute on function public.check_admin_pin(text) to authenticated;
 grant execute on function public.edit_sale(text, uuid, jsonb) to authenticated;
 -- sales are no longer editable directly, only through edit_sale()
 drop policy if exists sales_admin_update on public.sales;
+
+-- ---------- v6: editing a rental also needs the admin PIN ----------
+create or replace function public.edit_rental(p_pin text, p_id uuid, p_patch jsonb) returns public.rentals
+language plpgsql security definer set search_path = public, extensions as $$
+declare r public.rentals;
+begin
+  if not public.check_admin_pin(p_pin) then raise exception 'bad_pin'; end if;
+  update public.rentals set
+    created_at    = coalesce((p_patch->>'created_at')::timestamptz, created_at),
+    day           = coalesce((p_patch->>'day')::date, day),
+    ends_at       = case when p_patch ? 'ends_at' then (p_patch->>'ends_at')::timestamptz else ends_at end,
+    type          = coalesce(p_patch->>'type', type),
+    unit_label    = coalesce(p_patch->>'unit_label', unit_label),
+    rate          = coalesce(p_patch->'rate', rate),
+    price         = coalesce((p_patch->>'price')::numeric, price),
+    deposit       = coalesce((p_patch->>'deposit')::numeric, deposit),
+    seller        = coalesce(p_patch->>'seller', seller),
+    payment       = coalesce(p_patch->>'payment', payment),
+    customer_name = coalesce(p_patch->>'customer_name', customer_name),
+    phone         = coalesce(p_patch->>'phone', phone),
+    status        = coalesce(p_patch->>'status', status),
+    returned_at   = case when p_patch ? 'returned_at' then (p_patch->>'returned_at')::timestamptz else returned_at end
+  where id = p_id returning * into r;
+  if r.id is null then raise exception 'not_found'; end if;
+  return r;
+end $$;
+revoke execute on function public.edit_rental(text, uuid, jsonb) from public, anon;
+grant execute on function public.edit_rental(text, uuid, jsonb) to authenticated;
