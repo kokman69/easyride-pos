@@ -316,9 +316,9 @@ alter table public.products add column if not exists source_url text default '';
 alter table public.rentals add column if not exists product_id uuid references public.products(id) on delete set null;
 create unique index if not exists rentals_one_active_per_product
   on public.rentals (product_id) where status = 'active' and product_id is not null;
--- petrol moped rental rate (1 day 50 ₾, as in the rent-to-own example on easyride.ge); edit in the app
+-- petrol moped rental rate: 1 day (24 h) = 60 ₾; edit in the app
 update public.settings
-   set tariffs = tariffs || '[{"type":"moped","rates":[{"n":1,"u":"d","p":50}]}]'::jsonb
+   set tariffs = tariffs || '[{"type":"moped","rates":[{"n":1,"u":"d","p":60}]}]'::jsonb
  where id = 1 and not exists (select 1 from jsonb_array_elements(tariffs) e where e->>'type' = 'moped');
 
 -- ---------- v3: sales can be in GEL or USD ----------
@@ -409,3 +409,296 @@ begin
 end $$;
 revoke execute on function public.edit_rental(text, uuid, jsonb) from public, anon;
 grant execute on function public.edit_rental(text, uuid, jsonb) to authenticated;
+
+-- =====================================================================
+-- v7: personal logins (admin + each seller), profiles, activity log,
+--     rental cancel and the late-return fee (10% of the daily rate per late hour)
+-- =====================================================================
+alter table public.staff add column if not exists user_id    uuid;
+alter table public.staff add column if not exists name       text;
+alter table public.staff add column if not exists phone      text not null default '';
+alter table public.staff add column if not exists active     boolean not null default true;
+alter table public.staff add column if not exists created_at timestamptz not null default now();
+create unique index if not exists staff_name_uq on public.staff (lower(name)) where name is not null;
+update public.staff s set user_id = u.id from auth.users u where lower(u.email) = s.email and s.user_id is null;
+update public.staff set name = 'კოკა' where email = 'admin@easyride.app' and name is null;
+-- the old shared seller login stays usable until the admin creates personal accounts and switches it off
+update public.staff set name = 'საერთო (ძველი)' where email = 'staff@easyride.app' and name is null;
+
+create or replace function public.my_role() returns text
+language sql stable security definer set search_path = public as $$
+  select role from public.staff where email = lower(coalesce(auth.jwt() ->> 'email', '')) and active
+$$;
+create or replace function public.my_profile() returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object('email', email, 'role', role, 'name', coalesce(name, ''), 'phone', phone)
+    from public.staff where email = lower(coalesce(auth.jwt() ->> 'email', '')) and active
+$$;
+-- names shown on the login screen (no passwords, no personal data)
+create or replace function public.login_list() returns table (name text, email text, role text)
+language sql stable security definer set search_path = public as $$
+  select name, email, role from public.staff where active and name is not null order by role, name
+$$;
+
+-- ---------- activity log ----------
+create table if not exists public.audit_log (
+  id     bigint generated always as identity primary key,
+  at     timestamptz not null default now(),
+  email  text not null default '',
+  name   text not null default '',
+  action text not null,              -- insert / update / delete / login / staff_create / staff_update
+  tbl    text not null default '',
+  row_id text default '',
+  txid   bigint default txid_current(),
+  data   jsonb
+);
+create index if not exists audit_log_at_idx    on public.audit_log (at desc);
+create index if not exists audit_log_email_idx on public.audit_log (email, at desc);
+alter table public.audit_log enable row level security;
+drop policy if exists audit_admin_read on public.audit_log;
+create policy audit_admin_read on public.audit_log for select to authenticated using (public.is_admin());
+revoke insert, update, delete on public.audit_log from anon, authenticated;
+
+create or replace function public.audit_write(p_action text, p_tbl text, p_row text, p_data jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_email text := lower(coalesce(auth.jwt() ->> 'email', '')); v_name text;
+begin
+  select name into v_name from public.staff where email = v_email;
+  insert into public.audit_log (email, name, action, tbl, row_id, data)
+  values (v_email, coalesce(v_name, v_email), p_action, coalesce(p_tbl, ''), coalesce(p_row, ''), p_data);
+end $$;
+revoke execute on function public.audit_write(text, text, text, jsonb) from public, anon, authenticated;
+
+create or replace function public.audit_trg() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_old jsonb; v_new jsonb; v_d jsonb := '{}'; k text;
+begin
+  if coalesce(current_setting('er.skip_audit', true), '') = '1' then return null; end if;
+  if tg_op = 'INSERT' then v_d := to_jsonb(new);
+  elsif tg_op = 'DELETE' then v_d := to_jsonb(old);
+  else
+    v_old := to_jsonb(old); v_new := to_jsonb(new);
+    for k in select jsonb_object_keys(v_new) loop
+      if k <> 'updated_at' and (v_new -> k) is distinct from (v_old -> k) then
+        v_d := v_d || jsonb_build_object(k, jsonb_build_object('from', v_old -> k, 'to', v_new -> k));
+      end if;
+    end loop;
+    if v_d = '{}'::jsonb then return null; end if;
+    v_d := v_d || jsonb_build_object('_row', v_new - 'contract' - 'photos' - 'lines');
+  end if;
+  v_d := v_d - 'contract' - 'photos';
+  perform public.audit_write(lower(tg_op), tg_table_name, coalesce(v_new ->> 'id', v_old ->> 'id', v_d ->> 'id'), v_d);
+  return null;
+end $$;
+do $$ declare tb text; begin
+  foreach tb in array array['sales','rentals','products','customers','fleet','settings'] loop
+    execute format('drop trigger if exists audit_%1$s on public.%1$I', tb);
+    execute format('create trigger audit_%1$s after insert or update or delete on public.%1$I for each row execute function public.audit_trg()', tb);
+  end loop;
+end $$;
+
+create or replace function public.log_login() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_staff() then perform public.audit_write('login', '', '', null); end if;
+end $$;
+
+-- ---------- staff accounts (admin creates them; nobody else can) ----------
+create or replace function public.rename_seller(p_old text, p_new text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_old is null or p_old = p_new then return; end if;
+  perform set_config('er.skip_audit', '1', true);
+  update public.sales   set seller = p_new where seller = p_old;
+  update public.rentals set seller = p_new where seller = p_old;
+  update public.settings set sellers = array_replace(sellers, p_old, p_new) where id = 1;
+  perform set_config('er.skip_audit', '0', true);
+end $$;
+revoke execute on function public.rename_seller(text, text) from public, anon, authenticated;
+
+create or replace function public.admin_create_staff(p_name text, p_role text, p_password text, p_phone text default '') returns text
+language plpgsql security definer set search_path = public, extensions as $$
+declare v_id uuid := gen_random_uuid(); v_email text; v_inst uuid;
+begin
+  if not public.is_admin() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  p_name := btrim(coalesce(p_name, ''));
+  if p_name = '' then raise exception 'name_required'; end if;
+  if p_role not in ('admin','consultant') then raise exception 'bad_role'; end if;
+  if length(coalesce(p_password, '')) < 6 then raise exception 'password_too_short'; end if;
+  if exists (select 1 from public.staff where lower(name) = lower(p_name)) then raise exception 'name_taken'; end if;
+  v_email := 'u-' || substr(replace(v_id::text, '-', ''), 1, 12) || '@easyride.app';
+  select instance_id into v_inst from auth.users where instance_id is not null limit 1;
+  insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+      raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+      confirmation_token, recovery_token, email_change_token_new, email_change,
+      email_change_token_current, phone_change, phone_change_token, reauthentication_token)
+  values (coalesce(v_inst, '00000000-0000-0000-0000-000000000000'), v_id, 'authenticated', 'authenticated', v_email,
+      crypt(p_password, gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{}', now(), now(),
+      '', '', '', '', '', '', '', '');
+  insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+  values (v_id::text, v_id, jsonb_build_object('sub', v_id::text, 'email', v_email, 'email_verified', true, 'phone_verified', false),
+      'email', now(), now(), now());
+  insert into public.staff (email, role, user_id, name, phone) values (v_email, p_role, v_id, p_name, coalesce(p_phone, ''));
+  update public.settings set sellers = array_append(sellers, p_name) where id = 1 and not (p_name = any(sellers));
+  perform public.audit_write('staff_create', 'staff', v_email, jsonb_build_object('name', p_name, 'role', p_role));
+  return v_email;
+end $$;
+
+-- p_patch: {name, phone, role, active, password}
+create or replace function public.admin_update_staff(p_email text, p_patch jsonb) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare s public.staff; v_name text; v_pw text := p_patch ->> 'password';
+begin
+  if not public.is_admin() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  select * into s from public.staff where email = lower(p_email);
+  if s.email is null then raise exception 'not_found'; end if;
+  if s.email = lower(coalesce(auth.jwt() ->> 'email', '')) and (p_patch ->> 'active' = 'false' or p_patch ->> 'role' = 'consultant') then
+    raise exception 'not_self'; end if;
+  v_name := nullif(btrim(coalesce(p_patch ->> 'name', '')), '');
+  if v_name is not null and v_name is distinct from s.name then
+    if exists (select 1 from public.staff where lower(name) = lower(v_name) and email <> s.email) then raise exception 'name_taken'; end if;
+    perform public.rename_seller(s.name, v_name);
+    update public.settings set sellers = array_append(sellers, v_name) where id = 1 and not (v_name = any(sellers));
+  end if;
+  if v_pw is not null and v_pw <> '' then
+    if length(v_pw) < 6 then raise exception 'password_too_short'; end if;
+    update auth.users set encrypted_password = crypt(v_pw, gen_salt('bf')), updated_at = now() where lower(email) = s.email;
+  end if;
+  update public.staff set
+    name   = coalesce(v_name, name),
+    phone  = coalesce(p_patch ->> 'phone', phone),
+    role   = case when p_patch ->> 'role' in ('admin','consultant') then p_patch ->> 'role' else role end,
+    active = coalesce((p_patch ->> 'active')::boolean, active)
+  where email = s.email;
+  perform public.audit_write('staff_update', 'staff', s.email, (p_patch - 'password') || case when v_pw <> '' then '{"password":"***"}'::jsonb else '{}'::jsonb end || jsonb_build_object('who', coalesce(s.name, s.email)));
+end $$;
+
+-- every user: own name / phone, own password (old one required)
+create or replace function public.update_my_profile(p_name text, p_phone text) returns void
+language plpgsql security definer set search_path = public as $$
+declare s public.staff; v_name text := nullif(btrim(coalesce(p_name, '')), '');
+begin
+  select * into s from public.staff where email = lower(coalesce(auth.jwt() ->> 'email', '')) and active;
+  if s.email is null then raise exception 'not_allowed' using errcode = '42501'; end if;
+  if v_name is not null and v_name is distinct from s.name then
+    if exists (select 1 from public.staff where lower(name) = lower(v_name) and email <> s.email) then raise exception 'name_taken'; end if;
+    perform public.rename_seller(s.name, v_name);
+    update public.settings set sellers = array_append(sellers, v_name) where id = 1 and not (v_name = any(sellers));
+  end if;
+  update public.staff set name = coalesce(v_name, name), phone = coalesce(p_phone, phone) where email = s.email;
+  perform public.audit_write('staff_update', 'staff', s.email, jsonb_build_object('name', v_name, 'phone', p_phone, 'who', coalesce(s.name, s.email)));
+end $$;
+create or replace function public.my_set_password(p_old text, p_new text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  if not public.is_staff() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  if length(coalesce(p_new, '')) < 6 then raise exception 'password_too_short'; end if;
+  perform pg_sleep(0.4);
+  if not exists (select 1 from auth.users where id = auth.uid() and encrypted_password = crypt(coalesce(p_old, ''), encrypted_password)) then
+    raise exception 'bad_old_password'; end if;
+  update auth.users set encrypted_password = crypt(p_new, gen_salt('bf')), updated_at = now() where id = auth.uid();
+  perform public.audit_write('staff_update', 'staff', lower(coalesce(auth.jwt() ->> 'email', '')), '{"password":"***"}');
+end $$;
+
+-- ---------- rentals: cancel + late fee ----------
+alter table public.rentals add column if not exists late_hours   int not null default 0;
+alter table public.rentals add column if not exists late_fee     numeric(10,2) not null default 0;
+alter table public.rentals add column if not exists late_payment text not null default '';
+alter table public.rentals add column if not exists late_paid_at timestamptz;
+alter table public.rentals add column if not exists cancelled_at timestamptz;
+do $$ declare c text; begin
+  for c in select conname from pg_constraint where conrelid = 'public.rentals'::regclass and contype = 'c'
+            and pg_get_constraintdef(oid) ilike '%status%' loop
+    execute format('alter table public.rentals drop constraint %I', c);
+  end loop;
+end $$;
+alter table public.rentals add constraint rentals_status_check check (status in ('active','returned','cancelled'));
+
+-- late hours (every started hour after ends_at) × 10% of the daily rate the customer signed for
+create or replace function public.rental_late(p_id uuid) returns json
+language plpgsql stable security definer set search_path = public as $$
+declare r public.rentals; v_daily numeric; v_h int := 0;
+begin
+  if not public.is_staff() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  select * into r from public.rentals where id = p_id;
+  if r.id is null then raise exception 'not_found'; end if;
+  v_daily := nullif((r.contract -> 'raw' ->> 'daily')::numeric, 0);
+  if v_daily is null then
+    select (rt ->> 'p')::numeric into v_daily from public.settings s, jsonb_array_elements(s.tariffs) t, jsonb_array_elements(t -> 'rates') rt
+     where s.id = 1 and t ->> 'type' = r.type and rt ->> 'u' = 'd' and (rt ->> 'n')::int = 1 limit 1;
+  end if;
+  if r.ends_at is not null and now() > r.ends_at then v_h := ceil(extract(epoch from now() - r.ends_at) / 3600)::int; end if;
+  return json_build_object('hours', v_h, 'daily', coalesce(v_daily, 0), 'fee', round(v_h * coalesce(v_daily, 0) * 0.10, 2));
+end $$;
+create or replace function public.return_rental(p_id uuid, p_fee numeric, p_payment text) returns public.rentals
+language plpgsql security definer set search_path = public as $$
+declare r public.rentals; l json;
+begin
+  if not public.is_staff() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  select * into r from public.rentals where id = p_id for update;
+  if r.id is null or r.status <> 'active' then raise exception 'not_active'; end if;
+  l := public.rental_late(p_id);
+  if (l ->> 'fee')::numeric <> coalesce(p_fee, 0) then raise exception 'fee_changed'; end if;
+  update public.rentals set status = 'returned', returned_at = now(),
+         late_hours = (l ->> 'hours')::int, late_fee = (l ->> 'fee')::numeric,
+         late_payment = case when (l ->> 'fee')::numeric > 0 then coalesce(p_payment, '') else '' end,
+         late_paid_at = case when (l ->> 'fee')::numeric > 0 then now() end
+   where id = p_id returning * into r;
+  return r;
+end $$;
+
+create or replace function public.edit_rental(p_pin text, p_id uuid, p_patch jsonb) returns public.rentals
+language plpgsql security definer set search_path = public, extensions as $$
+declare r public.rentals;
+begin
+  if not public.check_admin_pin(p_pin) then raise exception 'bad_pin'; end if;
+  update public.rentals set
+    created_at    = coalesce((p_patch->>'created_at')::timestamptz, created_at),
+    day           = coalesce((p_patch->>'day')::date, day),
+    ends_at       = case when p_patch ? 'ends_at' then (p_patch->>'ends_at')::timestamptz else ends_at end,
+    type          = coalesce(p_patch->>'type', type),
+    unit_label    = coalesce(p_patch->>'unit_label', unit_label),
+    rate          = coalesce(p_patch->'rate', rate),
+    price         = coalesce((p_patch->>'price')::numeric, price),
+    deposit       = coalesce((p_patch->>'deposit')::numeric, deposit),
+    late_fee      = coalesce((p_patch->>'late_fee')::numeric, late_fee),
+    seller        = coalesce(p_patch->>'seller', seller),
+    payment       = coalesce(p_patch->>'payment', payment),
+    customer_name = coalesce(p_patch->>'customer_name', customer_name),
+    phone         = coalesce(p_patch->>'phone', phone),
+    status        = coalesce(p_patch->>'status', status),
+    returned_at   = case when p_patch ? 'returned_at' then (p_patch->>'returned_at')::timestamptz else returned_at end,
+    cancelled_at  = case when p_patch->>'status' = 'cancelled' then coalesce(cancelled_at, now())
+                         when p_patch ? 'status' then null else cancelled_at end
+  where id = p_id returning * into r;
+  if r.id is null then raise exception 'not_found'; end if;
+  return r;
+end $$;
+
+revoke execute on function public.my_profile() from public;
+revoke execute on function public.log_login() from public, anon;
+revoke execute on function public.admin_create_staff(text, text, text, text) from public, anon;
+revoke execute on function public.admin_update_staff(text, jsonb) from public, anon;
+revoke execute on function public.update_my_profile(text, text) from public, anon;
+revoke execute on function public.my_set_password(text, text) from public, anon;
+revoke execute on function public.rental_late(uuid) from public, anon;
+revoke execute on function public.return_rental(uuid, numeric, text) from public, anon;
+grant execute on function public.login_list() to anon, authenticated;
+grant execute on function public.my_profile() to authenticated;
+grant execute on function public.log_login() to authenticated;
+grant execute on function public.admin_create_staff(text, text, text, text) to authenticated;
+grant execute on function public.admin_update_staff(text, jsonb) to authenticated;
+grant execute on function public.update_my_profile(text, text) to authenticated;
+grant execute on function public.my_set_password(text, text) to authenticated;
+grant execute on function public.rental_late(uuid) to authenticated;
+grant execute on function public.return_rental(uuid, numeric, text) to authenticated;
+grant select on public.audit_log to authenticated;
+
+-- ---------- v8: petrol moped 1 day (24 h) = 60 ₾ (was entered as 50 by mistake) ----------
+update public.settings
+   set tariffs = (select jsonb_agg(case when t->>'type' = 'moped'
+                    then jsonb_set(t, '{rates}', (select jsonb_agg(case when r->>'u' = 'd' and (r->>'n')::int = 1 then jsonb_set(r, '{p}', '60') else r end) from jsonb_array_elements(t->'rates') r))
+                    else t end) from jsonb_array_elements(tariffs) t)
+ where id = 1;
+update public.rentals set contract = jsonb_set(contract, '{raw,daily}', '60')
+ where type = 'moped' and contract is not null and (contract->'raw'->>'daily')::numeric = 50;

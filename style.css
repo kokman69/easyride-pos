@@ -325,3 +325,34 @@ html.simple .receipt{display:flex!important;position:static!important;inset:auto
   border:1px solid var(--line)!important;border-radius:var(--r)!important;padding:16px!important}
 
 .req{color:var(--danger,#d33);font-weight:600}
+
+/* ---------- login: admin / seller ---------- */
+.rolepick{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.rolepick .rp{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 10px;border:2px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font:700 15px var(--f-ui);cursor:pointer}
+.rolepick .rp svg{width:30px;height:30px;color:var(--green)}
+.rolepick .rp.adm svg{color:var(--accent)}
+.rolepick .rp[aria-pressed="true"]{border-color:var(--green);background:var(--green-soft)}
+.rolepick .rp.adm[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--surface))}
+.whobtn{display:inline-flex;align-items:center;gap:8px;background:none;border:0;padding:0;color:inherit;font:inherit;cursor:pointer}
+.whobtn:hover #who-name{text-decoration:underline}
+
+/* ---------- return with late fee ---------- */
+.kv{display:flex;justify-content:space-between;gap:12px;border-bottom:1px dashed var(--line);padding:4px 0}
+.latebox{border:2px solid var(--danger);background:var(--danger-soft);border-radius:12px;padding:12px;gap:10px}
+.okbox{border:1px solid var(--green);background:var(--green-soft);color:var(--green);border-radius:12px;padding:12px;font-weight:600}
+.paidbtn{border:2px solid var(--green);color:var(--green)}
+.paidbtn::before{content:"○ "}
+.paidbtn[aria-pressed="true"]{background:var(--green);color:var(--surface)}
+.paidbtn[aria-pressed="true"]::before{content:"✓ "}
+#rt-done:disabled{opacity:.45;cursor:not-allowed}
+.btn.danger.big{border-color:var(--danger)}
+
+/* ---------- staff, profiles, activity ---------- */
+.staffrow{width:100%;text-align:left;cursor:pointer;font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.staffrow:hover{border-color:var(--green)}
+.staffrow.off{opacity:.55}
+.stats.small3 .v{font-size:17px}
+.actlog{display:flex;flex-direction:column;max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.logday{position:sticky;top:0;background:var(--bg);font-weight:700;font-size:12px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--line)}
+.logrow{display:grid;grid-template-columns:44px 22px minmax(0,1fr);gap:6px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.4}
+.logrow:last-child{border-bottom:0}

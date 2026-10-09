@@ -10,7 +10,7 @@ window.ER_REPORT = (function () {
       seller: 'გამყიდველი', code: 'კოდი', total: 'სულ', disc: 'ფასდაკლება', note: 'შენიშვნა',
       item: 'გაქირავებული', period: 'ვადა', fee: 'ქირის საფასური', dep: 'დეპოზიტი', cust: 'მომხმარებელი', tel: 'ტელ.',
       start: 'დაწყება', end: 'დასრულება', doc: 'პასპორტი / ID', docTaken: 'ფოტო გადაღებულია, ასლი შენახულია',
-      agr: 'ხელშეკრულება', agrSigned: 'ხელმოწერილია ელექტრონულად'
+      late: 'დაგვიანებით დაბრუნება', h: 'სთ', agr: 'ხელშეკრულება', agrSigned: 'ხელმოწერილია ელექტრონულად'
     },
     en: {
       vehSold: d => `${d} — sold:`, itemsSold: d => `${d} — sold:`, rentReq: 'Today we received a rental request.', rentOn: d => `${d} — rental`,
@@ -18,7 +18,7 @@ window.ER_REPORT = (function () {
       seller: 'Seller', code: 'code', total: 'Total', disc: 'Discount', note: 'Note',
       item: 'Rental item', period: 'Rental period', fee: 'Rental fee', dep: 'Deposit', cust: 'Customer', tel: 'Tel',
       start: 'Rental start', end: 'Rental end', doc: 'Passport / ID', docTaken: 'photo taken, copy retained',
-      agr: 'Rental agreement', agrSigned: 'signed electronically'
+      late: 'Late return', h: 'h', agr: 'Rental agreement', agrSigned: 'signed electronically'
     },
     ru: {
       vehSold: d => `${d} — продано:`, itemsSold: d => `${d} — продано:`, rentReq: 'Сегодня мы получили заявку на аренду.', rentOn: d => `${d} — аренда`,
@@ -26,7 +26,7 @@ window.ER_REPORT = (function () {
       seller: 'Продавец', code: 'код', total: 'Итого', disc: 'Скидка', note: 'Примечание',
       item: 'Предмет аренды', period: 'Срок аренды', fee: 'Стоимость аренды', dep: 'Депозит', cust: 'Клиент', tel: 'Тел.',
       start: 'Начало аренды', end: 'Окончание аренды', doc: 'Паспорт / ID', docTaken: 'фото сделано, копия сохранена',
-      agr: 'Договор аренды', agrSigned: 'подписан электронно'
+      late: 'Возврат с опозданием', h: 'ч', agr: 'Договор аренды', agrSigned: 'подписан электронно'
     },
     ja: {
       vehSold: d => `${d} — 販売：`, itemsSold: d => `${d} — 販売：`, rentReq: '本日、レンタルの依頼を受けました。', rentOn: d => `${d} — レンタル`,
@@ -34,7 +34,7 @@ window.ER_REPORT = (function () {
       seller: '担当者', code: 'コード', total: '合計', disc: '割引', note: 'メモ',
       item: 'レンタル品', period: 'レンタル期間', fee: 'レンタル料金', dep: 'デポジット', cust: 'お客様', tel: '電話',
       start: 'レンタル開始', end: 'レンタル終了', doc: '旅券 / 身分証', docTaken: '写真撮影済み、コピー保管',
-      agr: 'レンタル契約', agrSigned: '電子署名済み'
+      late: '返却遅延', h: '時間', agr: 'レンタル契約', agrSigned: '電子署名済み'
     }
   };
   const C = {
@@ -69,7 +69,7 @@ window.ER_REPORT = (function () {
   /* r: { item(lg), period(lg), fee, payLabel(lg), deposit, cust, tel, nat, start, end, docPhoto, signed, seller } */
   function rental(lg, r) {
     const w = W[lg];
-    return join([r.today ? w.rentReq : w.rentOn(r.date), line(w.item, r.item(lg)), line(w.period, r.period(lg)), line(w.fee, r.fee), line(w.pay, r.payLabel(lg)),
+    return join([r.today ? w.rentReq : w.rentOn(r.date), line(w.item, r.item(lg)), line(w.period, r.period(lg)), line(w.fee, r.fee), r.late ? line(w.late, `${r.late.hours} ${w.h} — +${r.late.fee} (${w.total}: ${r.late.total})`) : '', line(w.pay, r.payLabel(lg)),
       line(w.dep, r.deposit), line(w.cust, r.cust), line(w.tel, r.tel), line(w.nat, country(r.nat, lg)),
       r.docPhoto ? line(w.doc, w.docTaken) : '', r.signed ? line(w.agr, w.agrSigned) : '',
       line(w.start, r.start), line(w.end, r.end), line(w.seller, r.seller)]);

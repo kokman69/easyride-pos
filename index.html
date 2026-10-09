@@ -39,7 +39,7 @@
     <div class="brand">easy<b>ride</b><small data-i="app_sub"></small></div>
     <nav id="tabs" role="tablist"></nav>
     <div class="who">
-      <span id="who-name"></span><span id="who-role" class="role"></span>
+      <button type="button" class="whobtn" id="who-btn"><span id="who-name"></span><span id="who-role" class="role"></span></button>
       <button class="btn icon-btn mode-btn" type="button" id="mode-btn"></button>
       <button class="btn icon-btn theme-btn" type="button" data-i-title="theme_toggle"></button>
       <label class="btn icon-btn langbtn" title="Language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><select class="lang" id="lang-a" aria-label="Language"></select></label>
@@ -188,11 +188,15 @@
           <div class="row" style="flex-wrap:nowrap"><input id="st-new" type="text" data-iph="name_ph"><button class="btn" id="st-add" data-i="add"></button></div>
         </div>
         <div class="panel pad stack">
-          <h3 data-i="passwords_title"></h3>
-          <label class="f"><span data-i="admin_pw"></span><input id="pw-admin" type="password" autocomplete="new-password"></label>
-          <label class="f"><span data-i="cons_pw"></span><input id="pw-cons" type="password" autocomplete="new-password"></label>
-          <button class="btn primary" id="pw-save" data-i="change_pw"></button>
-          <p class="small muted" style="margin:0" data-i="pw_hint"></p>
+          <div class="row between"><h3 data-i="staff_title"></h3><button class="btn ghost small" id="st-log" data-i="all_activity"></button></div>
+          <p class="small muted" style="margin:0" data-i="staff_hint"></p>
+          <div id="st-staff" class="stack" style="gap:6px"></div>
+          <div class="formgrid two">
+            <label class="f"><span data-i="cust_name"></span><input id="sf-name" type="text" autocomplete="off"></label>
+            <label class="f"><span data-i="role"></span><select id="sf-role"><option value="consultant" data-i="role_cons"></option><option value="admin" data-i="role_admin"></option></select></label>
+            <label class="f" style="grid-column:1/-1"><span data-i="password"></span><input id="sf-pw" type="password" autocomplete="new-password" minlength="6"></label>
+          </div>
+          <button class="btn primary" id="sf-add" data-i="staff_add"></button>
         </div>
       </div>
       <div class="panel pad stack">

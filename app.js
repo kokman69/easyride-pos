@@ -70,7 +70,7 @@ darkMQ?.addEventListener?.('change', paintTheme);
 paintTheme();
 
 /* ================= state ================= */
-const S = { products:[], sales:[], rentals:[], customers:[], fleet:[], settings:{ sellers:[], tariffs:[] },
+const S = { products:[], sales:[], rentals:[], customers:[], fleet:[], staff:[], settings:{ sellers:[], tariffs:[] },
   user:null, cart:[], tab:'sale', sType:'', pType:'', period:'today', loaded:false };
 const isAdmin = () => S.user?.role === 'admin';
 
@@ -83,6 +83,10 @@ function fail(e){
   if (e && (e.code === '42501' || /row-level security|not_allowed|permission/i.test(m))) return toast(t('no_rights'));
   if (/password_too_short/.test(m)) return toast(t('pw_short'));
   if (/bad_pin/.test(m)) return toast(t('pin_wrong'));
+  if (/bad_old_password/.test(m)) return toast(t('pw_old_wrong'));
+  if (/name_taken/.test(m)) return toast(t('name_taken'));
+  if (/name_required/.test(m)) return toast(t('enter_name'));
+  if (/not_self/.test(m)) return toast(t('not_self'));
   if (!navigator.onLine) return toast(t('offline'));
   toast(t('save_failed'));
 }
@@ -110,16 +114,17 @@ async function loadTable(name){
   else if (name === 'fleet') S.fleet = await q(sb.from('fleet').select('*'));
   else if (name === 'sales') S.sales = await q(sb.from('sales').select('*').order('created_at', { ascending:false }).limit(1000));
   else if (name === 'rentals') S.rentals = await q(sb.from('rentals').select('*').order('created_at', { ascending:false }).limit(500));
+  else if (name === 'staff') S.staff = isAdmin() ? await q(sb.from('staff').select('*')) : [];
   else if (name === 'settings') { const d = await q(sb.from('settings').select('*').eq('id', 1).maybeSingle()); if (d) S.settings = { sellers:[], tariffs:[], ...d }; }
 }
-const TABLES = ['products','customers','fleet','sales','rentals','settings'];
+const TABLES = ['products','customers','fleet','sales','rentals','settings','staff'];
 async function reload(...names){ try { await Promise.all(names.map(loadTable)); } catch(e){ console.error(e); } if (S.user) render(); }
 const pending = {}; let channel = null;
 function scheduleReload(name){ clearTimeout(pending[name]); pending[name] = setTimeout(() => reload(name), 350); }
 function subscribeLive(){
   if (channel) return;
   channel = sb.channel('er-live');
-  TABLES.forEach(tb => channel.on('postgres_changes', { event:'*', schema:'public', table:tb }, () => scheduleReload(tb)));
+  TABLES.filter(tb => tb !== 'staff').forEach(tb => channel.on('postgres_changes', { event:'*', schema:'public', table:tb }, () => scheduleReload(tb)));
   channel.subscribe();
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S.user) reload(...TABLES); });
@@ -136,7 +141,45 @@ async function boot(){
   if (session) await afterLogin(); else renderGate();
   sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT' && S.user) showGate(); });
 }
-function renderGate(){
+/* login: choose admin or seller, then your own name and password */
+let LOGIN = null;
+const STAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.55 4.43 1.07 6.27L12 17.2l-5.62 2.9 1.07-6.27L2.9 9.4l6.3-.9z"/></svg>';
+const PERSON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
+async function renderGate(){
+  if (!LOGIN) { try { LOGIN = await q(sb.rpc('login_list')) || []; } catch(e){ console.error(e); LOGIN = []; } }
+  if (!LOGIN.length) return renderGateOld();
+  let role = ls.get('er-grole') === 'admin' ? 'admin' : 'consultant';
+  const paint = () => {
+    const list = LOGIN.filter(x => x.role === role), last = ls.get('er-gemail');
+    $('gate-body').innerHTML = `<h2>${esc(t('login_title'))}</h2><form id="g-login" class="stack">
+      <div class="rolepick" role="radiogroup">${[['admin', STAR, 'role_admin'], ['consultant', PERSON, 'role_cons']].map(([k, ic, l]) => `<button type="button" class="rp ${k === 'admin' ? 'adm' : ''}" data-r="${k}" aria-pressed="${role === k}">${ic}<span>${esc(t(l))}</span></button>`).join('')}</div>
+      ${list.length ? '' : `<div class="small muted">${esc(t('no_accounts'))}</div>`}
+      <label class="f">${esc(t('password'))}<input id="g-pw" type="password" autocomplete="current-password" required></label>
+      <label class="row small muted"><input type="checkbox" id="g-rem" checked> ${esc(t('remember'))}</label>
+      <div id="g-err" class="err" hidden></div>
+      <button class="btn primary big" id="g-btn" ${list.length ? '' : 'disabled'}>${esc(t('login_btn'))}</button></form>`;
+    $('gate-body').querySelectorAll('[data-r]').forEach(b => b.onclick = () => { role = b.dataset.r; ls.set('er-grole', role); paint(); $('g-pw')?.focus(); });
+    $('g-login').onsubmit = async e => {
+      e.preventDefault();
+      // everyone has a personal password, so the password itself tells who is logging in
+      const pw = $('g-pw').value, er = $('g-err'), btn = $('g-btn'); if (!list.length || !pw) return;
+      const emails = list.map(x => x.email).sort((a, b) => (b === last) - (a === last));
+      er.hidden = true; btn.disabled = true;
+      try {
+        let email = null;
+        for (const em of emails) { const { error } = await sb.auth.signInWithPassword({ email:em, password:pw }); if (!error) { email = em; break; } }
+        if (!email) { er.textContent = navigator.onLine ? t('wrong_pw') : t('offline'); er.hidden = false; $('g-pw').select(); return; }
+        ls.set('er-gemail', email);
+        if ($('g-rem').checked) ls.set('er-temp', null); else { ls.set('er-temp', '1'); try { sessionStorage.setItem('er-alive', '1'); } catch(e){} }
+        sb.rpc('log_login').then(() => {}, () => {});
+        await afterLogin();
+      } catch(err){ console.error(err); er.textContent = t('save_failed'); er.hidden = false; }
+      finally { btn.disabled = false; }
+    };
+  };
+  paint();
+}
+function renderGateOld(){
   const names = S.settings.sellers || [], last = ls.get('er-name') || '';
   $('gate-body').innerHTML = `<h2>${esc(t('login_title'))}</h2><form id="g-login" class="stack">
     ${names.length ? `<label class="f">${esc(t('who_are_you'))}<select id="g-name">${names.map(n => `<option ${n===last?'selected':''}>${esc(n)}</option>`).join('')}</select></label>` : ''}
@@ -165,13 +208,15 @@ async function afterLogin(){
   let role = null;
   try { role = await q(sb.rpc('my_role')); } catch(e){ console.error(e); }
   if (!role) { await sb.auth.signOut(); renderGate(); $('g-err').textContent = t('no_access_account'); $('g-err').hidden = false; return; }
-  S.user = { role: role === 'admin' ? 'admin' : 'consultant', name: ls.get('er-name') || (S.settings.sellers || [])[0] || '' };
+  let me = null; try { me = await q(sb.rpc('my_profile')); } catch(e){ console.error(e); }
+  S.user = { role: role === 'admin' ? 'admin' : 'consultant', email: me?.email || '', phone: me?.phone || '',
+    name: me?.name || ls.get('er-name') || (S.settings.sellers || [])[0] || '' };
   $('gate').hidden = true; $('app').hidden = false;
   S.tab = 'sale'; renderAll();
   await reload(...TABLES);
   subscribeLive();
 }
-function showGate(){ S.user = null; S.cart = []; $('app').hidden = true; $('gate').hidden = false; renderGate(); }
+function showGate(){ S.user = null; S.cart = []; LOGIN = null; $('app').hidden = true; $('gate').hidden = false; renderGate(); }
 $('logout').onclick = async () => { ls.set('er-temp', null); try { await sb.auth.signOut(); } catch(e){} showGate(); };
 
 /* ================= tabs ================= */
@@ -673,6 +718,14 @@ const curTariff = () => (S.settings.tariffs || [])[+$('r-type').value];
 const UNIT_MS = { m:6e4, h:36e5, d:864e5, w:6048e5 };
 const toLocalInput = d => `${dayKey(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const fmtDT = ts => { const d = new Date(ts); return isNaN(d) ? '' : `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+/* late return: every started hour after the agreed end = 10% of the daily rate the customer signed for */
+const rentDaily = r => +(r.contract?.raw?.daily) || +dailyRate(r.type) || 0;
+function lateCalc(r){
+  if (!r.ends_at || r.status !== 'active') return { hours:0, daily:rentDaily(r), fee:0 };
+  const ms = Date.now() - new Date(r.ends_at), hours = ms > 0 ? Math.ceil(ms / 36e5) : 0, daily = rentDaily(r);
+  return { hours, daily, fee:r2(hours * daily * 0.1) };
+}
+const rentSum = r => r2((+r.price || 0) + (+r.late_fee || 0));
 function dueLabel(r){
   if (!r.ends_at) return '';
   const late = r.status === 'active' && new Date(r.ends_at) < new Date();
@@ -685,14 +738,15 @@ function renderRent(){
   $('r-seller').innerHTML = sellerOpts($('r-seller').value || S.user?.name);
   mountPicker('r-cust');
   const act = S.rentals.filter(r => r.status === 'active');
+  const lateTag = r => { const l = lateCalc(r); return l.fee ? `<div class="small due late num">+${money(l.fee)} · ${l.hours} ${esc(t('hours_short'))}</div>` : ''; };
   const cBtn = r => r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '';
   const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
       <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit)}` : ''}</div>${cBtn(r)}${eBtn()}</div>
-      <div style="text-align:right"><div class="num">${money(r.price)}</div><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
+      <div style="text-align:right"><div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
     : `<div class="empty small">${esc(t('nothing_rented'))}</div>`;
-  const done = S.rentals.filter(r => r.status !== 'active').slice(0, 50);
-  $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(r.price)}</td><td style="white-space:nowrap">${cBtn(r)}${eBtn()}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
+  const done = S.rentals.filter(r => r.status === 'returned').slice(0, 50);
+  $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(rentSum(r))}${+r.late_fee ? `<div class="small due late">+${money(r.late_fee)}</div>` : ''}</td><td style="white-space:nowrap">${cBtn(r)}${eBtn()}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
 }
 function setEnd(force){
   const el = $('r-end'), x = curTariff(), r = x?.rates?.[+$('r-rate').value];
@@ -828,10 +882,38 @@ $('r-active').onclick = async e => {
   const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
   const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; }
   const cb = e.target.closest('[data-act="contract"]'); if (cb) { viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); return; }
-  const b = e.target.closest('[data-act="ret"]'); if (!b) return; b.disabled = true;
-  try { await q(sb.from('rentals').update({ status:'returned', returned_at:new Date().toISOString() }).eq('id', b.closest('[data-id]').dataset.id)); toast(t('return_saved')); await reload('rentals'); }
-  catch(err){ fail(err); b.disabled = false; }
+  const b = e.target.closest('[data-act="ret"]'); if (!b) return;
+  const r = S.rentals.find(x => x.id === b.closest('[data-id]').dataset.id); if (r) openReturn(r);
 };
+/* return: late fee shown, "paid" must be pressed before the rental can be finished */
+async function openReturn(r){
+  let late = lateCalc(r);
+  try { const v = await q(sb.rpc('rental_late', { p_id:r.id })); if (v) late = v; } catch(e){ console.error(e); }
+  const fee = +late.fee || 0, row = (k, v) => v ? `<div class="kv"><span class="muted">${esc(t(k))}</span><b class="num">${v}</b></div>` : '';
+  openOv(`<div class="row between"><h2>${esc(t('return_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}<div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')}</div></div>
+    <div class="stack" style="gap:4px">${row('started', fmtTs(r.created_at))}${row('return_by', r.ends_at ? fmtTs(r.ends_at) : '')}${row('returned_at', fmtTs(new Date()))}${row('rent_fee', money(r.price))}</div>
+    ${fee ? `<div class="latebox stack">
+        <div class="row between"><b>${esc(t('late_by'))} ${late.hours} ${esc(t('hours_short'))}</b><b class="num">+${money(fee)}</b></div>
+        <div class="small muted num">${late.hours} × 10% × ${money(late.daily)} (${esc(t('daily_rate'))})</div>
+        <div class="row between" style="font-size:18px"><span>${esc(t('total_due'))}</span><b class="num">${money(r2(+r.price + fee))}</b></div>
+        <label class="f"><span>${esc(t('payment'))}</span><select id="rt-pay">${PAYS.map(k => `<option value="${k}" ${k === (r.payment || 'cash') ? 'selected' : ''}>${esc(tPay(k))}</option>`).join('')}</select></label>
+        <button type="button" class="btn big paidbtn" id="rt-paid" aria-pressed="false">${esc(t('mark_paid'))} · ${money(fee)}</button></div>`
+      : `<div class="okbox">${esc(t(r.ends_at ? 'on_time' : 'no_end_time'))}</div>`}
+    <button type="button" class="btn primary big" id="rt-done" ${fee ? 'disabled' : ''}>${esc(t('finish_rental'))}</button>
+    ${fee ? `<div class="small muted" id="rt-hint">${esc(t('paid_first'))}</div>` : ''}`);
+  if ($('rt-paid')) $('rt-paid').onclick = () => { const on = $('rt-paid').getAttribute('aria-pressed') !== 'true'; $('rt-paid').setAttribute('aria-pressed', on); $('rt-done').disabled = !on; $('rt-hint').hidden = on; };
+  $('rt-done').onclick = async () => {
+    const btn = $('rt-done'); btn.disabled = true;
+    try {
+      await q(sb.rpc('return_rental', { p_id:r.id, p_fee:fee, p_payment:$('rt-pay')?.value || '' }));
+      closeOv(); toast(t('return_saved') + (fee ? ' · +' + money(fee) : '')); await reload('rentals');
+    } catch(err){
+      if (/fee_changed/.test(err?.message || '')) { toast(t('fee_changed')); closeOv(); openReturn(r); return; }
+      fail(err); btn.disabled = false;
+    }
+  };
+}
 $('r-history').onclick = e => { const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
   const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; } const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
 
@@ -855,10 +937,16 @@ function editRental(r, pin){
       <label class="f">${esc(t('payment'))}<select id="re-pay"><option value=""></option>${opt(PAYS, r.payment || '', tPay)}</select></label>
       <label class="f">${esc(t('cust_name'))}<input id="re-cname" value="${esc(r.customer_name || '')}"></label>
       <label class="f">${esc(t('cust_phone'))}<input id="re-phone" type="tel" value="${esc(r.phone || '')}"></label>
-      <label class="f">${esc(t('rent_status'))}<select id="re-status"><option value="active" ${r.status === 'active' ? 'selected' : ''}>${esc(t('st_active'))}</option><option value="returned" ${r.status !== 'active' ? 'selected' : ''}>${esc(t('returned_btn'))}</option></select></label>
+      <label class="f">${esc(t('rent_status'))}<select id="re-status"><option value="active" ${r.status === 'active' ? 'selected' : ''}>${esc(t('st_active'))}</option><option value="returned" ${r.status === 'returned' ? 'selected' : ''}>${esc(t('returned_btn'))}</option><option value="cancelled" ${r.status === 'cancelled' ? 'selected' : ''}>${esc(t('st_cancelled'))}</option></select></label>
+      <label class="f">${esc(t('late_fee'))}<input id="re-late" type="number" min="0" step="0.01" inputmode="decimal" value="${+r.late_fee || 0}"></label>
       <label class="f">${esc(t('returned_at'))}<input id="re-ret" type="datetime-local" value="${loc(r.returned_at)}"></label></div>
     ${r.contract ? `<p class="small muted" style="margin:0">${esc(t('rental_edit_note'))}</p>` : ''}
-    <button class="btn primary big" type="submit" id="re-save">${esc(t('save'))}</button></form>`);
+    <button class="btn primary big" type="submit" id="re-save">${esc(t('save'))}</button>
+    <button class="btn danger big" type="button" id="re-cancel">${esc(t('cancel_rental'))}</button></form>`);
+  $('re-cancel').onclick = () => arm($('re-cancel'), async () => {
+    try { await q(sb.rpc('edit_rental', { p_pin:pin, p_id:r.id, p_patch:{ status:'cancelled' } })); closeOv(); toast(t('rental_cancelled')); await reload('rentals'); }
+    catch(err){ fail(err); }
+  });
   $('re').onsubmit = async e => {
     e.preventDefault();
     const start = new Date($('re-start').value); if (isNaN(start)) return;
@@ -867,7 +955,7 @@ function editRental(r, pin){
     const patch = { created_at:start.toISOString(), day:dayKey(start), ends_at:iso($('re-end').value), type:$('re-type').value, unit_label:$('re-unit').value.trim(),
       rate: u === 'x' ? { other:true } : { n:Math.max(1, +$('re-n').value || 1), u, p:price }, price, deposit:r2($('re-dep').value),
       seller:$('re-seller').value, payment:$('re-pay').value, customer_name:$('re-cname').value.trim(), phone:$('re-phone').value.trim(),
-      status, returned_at: status === 'returned' ? (iso($('re-ret').value) || r.returned_at || new Date().toISOString()) : null };
+      late_fee:r2($('re-late').value), status, returned_at: status === 'returned' ? (iso($('re-ret').value) || r.returned_at || new Date().toISOString()) : null };
     const btn = $('re-save'); btn.disabled = true;
     try { await q(sb.rpc('edit_rental', { p_pin:pin, p_id:r.id, p_patch:patch })); closeOv(); toast(t('saved')); await reload('rentals'); }
     catch(err){ fail(err); btn.disabled = false; }
@@ -891,7 +979,7 @@ function rentalReportData(r){
   return { item: lg => [tL('t_' + r.type, lg), r.unit_label].filter(Boolean).join(' · '), period: lg => rateLabel(r.rate, lg),
     fee: repMoney('GEL')(r.price), payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? repMoney('GEL')(r.deposit) : '',
     cust: r.customer_name || c.name || '', tel: r.phone || c.phone || '', nat: c.nationality || raw.nat || '',
-    docPhoto: !!c.photo, signed: !!r.contract, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
+    docPhoto: !!c.photo, signed: !!r.contract, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
 }
 function repLangs(){ try { const v = JSON.parse(ls.get('er-rep-langs') || 'null'); if (Array.isArray(v) && v.length) return v; } catch(e){} return ['en', 'ja']; }
 function showReport(kind, data){
@@ -923,7 +1011,7 @@ function renderCustomers(){
   const qq = $('k-q').value.trim(), list = S.customers.filter(c => !qq || custMatch(c, qq));
   const nS = {}, nR = {};
   S.sales.forEach(s => s.customer_id && (nS[s.customer_id] = (nS[s.customer_id] || 0) + 1));
-  S.rentals.forEach(r => r.customer_id && (nR[r.customer_id] = (nR[r.customer_id] || 0) + 1));
+  S.rentals.forEach(r => r.customer_id && r.status !== 'cancelled' && (nR[r.customer_id] = (nR[r.customer_id] || 0) + 1));
   $('k-list').innerHTML = !list.length ? `<div class="empty">${esc(t(S.customers.length ? 'nothing_found' : 'cust_none'))}</div>` : list.slice(0, 300).map(c => `<div class="citem" data-id="${c.id}">
     <div style="min-width:0"><b>${esc(c.name)}</b> ${ageChip(c)}<div class="small muted num">${esc(custLine(c) || '—')}</div>
       <div class="small muted">${esc(t('cust_purchases'))}: <span class="num">${nS[c.id] || 0}</span> · ${esc(t('cust_rentals'))}: <span class="num">${nR[c.id] || 0}</span></div></div>
@@ -985,14 +1073,14 @@ function periodRange(){
 function renderReport(){
   $('rp-period').innerHTML = PERIODS.map(k => `<button class="chip" aria-pressed="${S.period === k}" data-p="${k}">${esc(t('p_' + k))}</button>`).join('');
   const [a, b] = periodRange(), inR = x => x.day >= a && x.day <= b;
-  const sales = S.sales.filter(inR), rents = S.rentals.filter(inR);
-  const rev = sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {}), rentRev = rents.reduce((s, x) => s + (+x.price || 0), 0);
+  const sales = S.sales.filter(inR), rents = S.rentals.filter(x => inR(x) && x.status !== 'cancelled');
+  const rev = sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {}), rentRev = rents.reduce((s, x) => s + rentSum(x), 0);
   const disc = sales.filter(x => (x.currency || 'GEL') === 'GEL').reduce((s, x) => s + Math.max(0, (+x.list_total || 0) - (+x.total || 0)), 0);
   const units = sales.reduce((s, x) => s + (x.lines || []).reduce((qq, l) => qq + (+l.qty || 0), 0), 0);
   $('rp-stats').innerHTML = [['rs_sales_rev', moneyMulti(rev)], ['rs_rent_rev', money(rentRev)], ['rs_count', sales.length + ' / ' + units], ['rs_disc', money(disc)]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('');
   const bs = {}, g = k => bs[k] ??= { n:0, veh:0, sum:{}, rent:0 };
   sales.forEach(s => { const o = g(s.seller || '—'); o.n++; addCur(o.sum, s.currency, s.total); o.veh += (s.lines || []).filter(l => VEH.includes(l.type)).reduce((qq, l) => qq + (+l.qty || 0), 0); });
-  rents.forEach(r => { g(r.seller || '—').rent += +r.price || 0; });
+  rents.forEach(r => { g(r.seller || '—').rent += rentSum(r); });
   const sk = Object.keys(bs).sort((x, y) => bs[y].n - bs[x].n);
   $('rp-sellers').innerHTML = sk.length ? `<table><thead><tr><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_sales'))}</th><th class="r">${esc(t('col_veh'))}</th><th class="r">${esc(t('col_sum'))}</th><th class="r">${esc(t('col_rent'))}</th></tr></thead><tbody>${sk.map(k => `<tr><td>${esc(k)}</td><td class="r num">${bs[k].n}</td><td class="r num">${bs[k].veh}</td><td class="r num">${moneyMulti(bs[k].sum)}</td><td class="r num">${money(bs[k].rent)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
   const bt = {}; sales.forEach(s => (s.lines || []).forEach(l => { const o = bt[l.type || 'other'] ??= { q:0, sum:{} }; o.q += +l.qty || 0; addCur(o.sum, s.currency, l.total); }));
@@ -1084,6 +1172,7 @@ function editSale(s, pin){
 /* ================= settings ================= */
 function renderSettings(){
   const sl = S.settings.sellers || [];
+  renderStaffList();
   $('st-sellers').innerHTML = sl.length ? sl.map((s, i) => `<div class="tariff"><span>${esc(s)}</span><button class="btn ghost small danger" data-i="${i}">${esc(t('remove'))}</button></div>`).join('') : `<div class="small muted">${esc(t('no_sellers'))}</div>`;
   const ft = $('fl-type').value; $('fl-type').innerHTML = RENTABLE.map(k => `<option value="${k}" ${k === ft ? 'selected' : ''}>${esc(tType(k))}</option>`).join('');
   const fl = [...S.fleet].sort((a, b) => (a.type + fleetLabel(a)).localeCompare(b.type + fleetLabel(b), undefined, { numeric:true }));
@@ -1101,17 +1190,140 @@ $('fl-add').onclick = async () => {
   try { await q(sb.from('fleet').insert(d)); $('fl-num').value = ''; $('fl-num').focus(); toast(t('saved')); await reload('fleet'); } catch(e){ fail(e); }
 };
 $('st-fleet').onclick = e => { const b = e.target.closest('[data-act="del"]'); if (!b) return; const id = b.closest('[data-id]').dataset.id; arm(b, async () => { try { await q(sb.from('fleet').delete().eq('id', id)); toast(t('deleted')); await reload('fleet'); } catch(err){ fail(err); } }); };
-$('pw-save').onclick = async () => {
-  const a = $('pw-admin').value, c = $('pw-cons').value; if (!a && !c) return;
-  if ((a && a.length < 6) || (c && c.length < 6)) { toast(t('pw_short')); return; }
-  if (a && c && a === c) { toast(t('pw_same')); return; }
-  const btn = $('pw-save'); btn.disabled = true;
-  try {
-    if (c) await q(sb.rpc('admin_set_password', { p_role:'consultant', p_password:c }));
-    if (a) await q(sb.rpc('admin_set_password', { p_role:'admin', p_password:a }));
-    $('pw-admin').value = ''; $('pw-cons').value = ''; toast(t('pw_changed'));
-  } catch(e){ fail(e); } finally { btn.disabled = false; }
+$('sf-add').onclick = async () => {
+  const name = $('sf-name').value.trim(), pw = $('sf-pw').value, role = $('sf-role').value;
+  if (!name) { $('sf-name').focus(); return; } if (pw.length < 6) { toast(t('pw_short')); $('sf-pw').focus(); return; }
+  const btn = $('sf-add'); btn.disabled = true;
+  try { await q(sb.rpc('admin_create_staff', { p_name:name, p_role:role, p_password:pw, p_phone:'' })); $('sf-name').value = ''; $('sf-pw').value = ''; toast(t('staff_created')); await reload('staff', 'settings'); }
+  catch(e){ fail(e); } finally { btn.disabled = false; }
 };
+$('st-staff').onclick = e => { const b = e.target.closest('[data-email]'); if (b) openStaff(b.dataset.email); };
+$('st-log').onclick = () => openStaff(null);
+
+/* ================= profiles + activity log ================= */
+const staffName = x => x?.name || x?.email || '';
+function renderStaffList(){
+  const list = [...S.staff].sort((a, b) => (b.active - a.active) || (a.role === 'admin' ? -1 : 1) - (b.role === 'admin' ? -1 : 1) || staffName(a).localeCompare(staffName(b)));
+  $('st-staff').innerHTML = list.length ? list.map(x => `<button type="button" class="tariff staffrow ${x.active ? '' : 'off'}" data-email="${esc(x.email)}">
+      <span class="row" style="gap:8px;flex-wrap:nowrap"><span class="role ${x.role === 'admin' ? 'admin' : ''}">${x.role === 'admin' ? STAR : PERSON}</span><b>${esc(x.name || t('shared_account'))}</b>${x.active ? '' : ` <span class="tag out">${esc(t('inactive'))}</span>`}</span>
+      <span class="small muted">${esc(x.phone || '')} ›</span></button>`).join('') : `<div class="small muted">—</div>`;
+}
+$('who-btn').onclick = () => openMe();
+function openMe(){
+  const u = S.user; if (!u) return;
+  openOv(`<div class="row between"><h2>${esc(t('my_profile'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="row" style="gap:10px"><span class="role ${isAdmin() ? 'admin' : ''}">${isAdmin() ? STAR : PERSON}</span><span class="muted">${esc(t(isAdmin() ? 'role_admin' : 'role_cons'))}</span></div>
+    <form id="me-f" class="stack"><div class="formgrid two">
+      <label class="f">${esc(t('cust_name'))}<input id="me-name" value="${esc(u.name)}" required></label>
+      <label class="f">${esc(t('cust_phone'))}<input id="me-phone" type="tel" value="${esc(u.phone || '')}"></label></div>
+      <button class="btn primary" id="me-save">${esc(t('save'))}</button></form>
+    <form id="me-pw" class="stack"><h3 style="margin:8px 0 0">${esc(t('change_pw'))}</h3><div class="formgrid two">
+      <label class="f">${esc(t('pw_old'))}<input id="me-old" type="password" autocomplete="current-password" required></label>
+      <label class="f">${esc(t('pw_new'))}<input id="me-new" type="password" autocomplete="new-password" minlength="6" required></label></div>
+      <button class="btn" id="me-pw-save">${esc(t('change_pw'))}</button></form>
+    ${isAdmin() ? `<button type="button" class="btn ghost" id="me-staff">${esc(t('staff_title'))} ›</button>` : ''}`);
+  $('me-f').onsubmit = async e => {
+    e.preventDefault(); const btn = $('me-save'); btn.disabled = true;
+    try { const name = $('me-name').value.trim(), phone = $('me-phone').value.trim();
+      await q(sb.rpc('update_my_profile', { p_name:name, p_phone:phone })); Object.assign(S.user, { name, phone }); toast(t('saved')); closeOv(); renderAll(); await reload('sales', 'rentals', 'settings', 'staff'); }
+    catch(err){ fail(err); } finally { btn.disabled = false; }
+  };
+  $('me-pw').onsubmit = async e => {
+    e.preventDefault(); const nw = $('me-new').value; if (nw.length < 6) { toast(t('pw_short')); return; }
+    const btn = $('me-pw-save'); btn.disabled = true;
+    try { await q(sb.rpc('my_set_password', { p_old:$('me-old').value, p_new:nw })); $('me-old').value = $('me-new').value = ''; toast(t('pw_changed')); }
+    catch(err){ fail(err); } finally { btn.disabled = false; }
+  };
+  if ($('me-staff')) $('me-staff').onclick = () => { closeOv(); S.tab = 'settings'; buildTabs(); render(); $('st-staff')?.scrollIntoView({ block:'center' }); };
+}
+/* admin: one employee (email) or everybody (null) — details, totals, everything they did */
+async function openStaff(email){
+  if (!isAdmin()) return;
+  const x = email ? S.staff.find(y => y.email === email) : null; if (email && !x) return;
+  const me = x && x.email === S.user.email, nm = x?.name || '';
+  const [a, b] = [dayKey(new Date(Date.now() - 29 * 864e5)), dayKey(new Date())], today = dayKey(new Date());
+  const mine = arr => arr.filter(r => !x || (r.seller || '') === nm);
+  const sl = mine(S.sales), rl = mine(S.rentals.filter(r => r.status !== 'cancelled'));
+  const st = (arr, from, sum) => { const f = arr.filter(r => r.day >= from && r.day <= b); return `${f.length} · ${money(f.reduce((s, r) => s + sum(r), 0))}`; };
+  openOv(`<div class="row between"><h2>${x ? `<span class="role ${x.role === 'admin' ? 'admin' : ''}" style="vertical-align:-4px">${x.role === 'admin' ? STAR : PERSON}</span> ${esc(x.name || t('shared_account'))}` : esc(t('all_activity'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    ${x ? `<form id="sx" class="stack"><div class="formgrid two">
+      <label class="f">${esc(t('cust_name'))}<input id="sx-name" value="${esc(x.name || '')}"></label>
+      <label class="f">${esc(t('cust_phone'))}<input id="sx-phone" type="tel" value="${esc(x.phone || '')}"></label>
+      <label class="f">${esc(t('role'))}<select id="sx-role" ${me ? 'disabled' : ''}><option value="consultant">${esc(t('role_cons'))}</option><option value="admin" ${x.role === 'admin' ? 'selected' : ''}>${esc(t('role_admin'))}</option></select></label>
+      <label class="f">${esc(t('pw_new'))}<input id="sx-pw" type="password" autocomplete="new-password" placeholder="${esc(t('pw_keep'))}"></label></div>
+      <label class="row small"><input type="checkbox" id="sx-active" ${x.active ? 'checked' : ''} ${me ? 'disabled' : ''}> ${esc(t('account_active'))}</label>
+      <button class="btn primary" id="sx-save">${esc(t('save'))}</button></form>` : ''}
+    ${!x || x.name ? `<div class="stats small3">${[['sale_today', st(sl, today, r => +r.total || 0)], ['p_month30', st(sl, a, r => +r.total || 0)], ['rent_today', st(rl, today, rentSum)], ['rent_month30', st(rl, a, rentSum)]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('')}</div>` : ''}
+    <h3 style="margin:6px 0 0">${esc(t('activity'))}</h3><div id="sx-log" class="actlog"><div class="small muted">${esc(t('loading'))}</div></div>`, 'wide');
+  if (x) $('sx').onsubmit = async e => {
+    e.preventDefault(); const pw = $('sx-pw').value; if (pw && pw.length < 6) { toast(t('pw_short')); return; }
+    const patch = { name:$('sx-name').value.trim(), phone:$('sx-phone').value.trim() };
+    if (!me) Object.assign(patch, { role:$('sx-role').value, active:$('sx-active').checked });
+    if (pw) patch.password = pw;
+    const btn = $('sx-save'); btn.disabled = true;
+    try { await q(sb.rpc('admin_update_staff', { p_email:x.email, p_patch:patch })); toast(t('saved')); if (me) S.user.name = patch.name || S.user.name; closeOv(); await reload('staff', 'settings', 'sales', 'rentals'); renderAll(); }
+    catch(err){ fail(err); btn.disabled = false; }
+  };
+  let rows = [];
+  try { let qq = sb.from('audit_log').select('*'); if (x) qq = qq.eq('email', x.email); rows = await q(qq.order('at', { ascending:false }).limit(400)) || []; }
+  catch(e){ console.error(e); if ($('sx-log')) $('sx-log').innerHTML = `<div class="small muted">${esc(t('save_failed'))}</div>`; return; }
+  if (!$('sx-log')) return;
+  const saleTx = new Set(rows.filter(e => e.tbl === 'sales' && e.action !== 'update').map(e => e.txid));
+  const items = rows.map(e => logLine(e, saleTx)).filter(Boolean);
+  let lastDay = '';
+  $('sx-log').innerHTML = items.length ? items.map(({ e, icon, text }) => { const d = fmtD(new Date(e.at)), head = d !== lastDay ? `<div class="logday">${esc(d)}</div>` : ''; lastDay = d;
+    return `${head}<div class="logrow"><span class="num muted">${fmtTime(e.at)}</span><span class="logic">${icon}</span><span>${x ? '' : `<b>${esc(e.name || e.email)}</b> · `}${text}</span></div>`; }).join('') : `<div class="small muted">${esc(t('no_records'))}</div>`;
+}
+const fmtTime = ts => { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const LOGF = { price:'price', qty:'qty', seller:'seller', payment:'payment', total:'total', status:'rent_status', name:'cust_name', phone:'cust_phone', deposit:'deposit',
+  late_fee:'late_fee', ends_at:'return_by', returned_at:'returned_at', unit_label:'unit', type:'col_type', customer_name:'col_customer', note:'note', extra_discount:'extra_disc',
+  created_at:'col_time', currency:'currency', code:'code', color:'f_color', year:'f_year', model:'f_name', number:'fleet_num', id_number:'cust_id', sellers:'sellers', tariffs:'tariffs_title', role:'role', active:'account_active' };
+const LOG_SKIP = ['day','txid','signature','contract','created_by','updated_at','rate','photo','photos','list_total','late_paid_at','late_hours','late_payment','cancelled_at','user_id'];
+function logVal(k, v){
+  if (v == null || v === '') return '—';
+  if (/(_at)$/.test(k)) return fmtTs(v);
+  if (['price','total','deposit','late_fee','extra_discount'].includes(k)) return money(v);
+  if (k === 'status') return t(v === 'active' ? 'st_active' : v === 'returned' ? 'returned_btn' : v === 'cancelled' ? 'st_cancelled' : v);
+  if (k === 'payment') return tPay(v); if (k === 'type') return tType(v);
+  if (k === 'role') return t(v === 'admin' ? 'role_admin' : 'role_cons');
+  if (k === 'active') return t(v ? 'yes' : 'no');
+  if (Array.isArray(v)) return v.every(i => typeof i !== 'object') ? v.join(', ') : '…';
+  if (typeof v === 'object') return '…';
+  return String(v);
+}
+const IC = { sale:'🛒', rent:'🛵', ret:'↩️', cancel:'✖️', edit:'✏️', stock:'📦', cust:'👤', login:'🔑', staff:'👥', set:'⚙️', fleet:'🚲' };
+function logLine(e, saleTx){
+  const d = e.data || {}, row = d._row || d;
+  const ch = Object.keys(d).filter(k => k !== '_row' && !LOG_SKIP.includes(k) && d[k] && typeof d[k] === 'object' && !Array.isArray(d[k]) && 'to' in d[k]);
+  const diff = ch.map(k => `${esc(LOGF[k] ? t(LOGF[k]) : k)}: ${esc(logVal(k, d[k].from))} → <b>${esc(logVal(k, d[k].to))}</b>`).join(' · ');
+  const L = (icon, label, rest) => ({ e, icon:IC[icon], text:`${esc(t(label))}${rest ? ': ' + rest : ''}` });
+  const veh = r => esc([tType(r.type), r.unit_label].filter(Boolean).join(' · '));
+  switch (e.tbl + ':' + e.action) {
+    case ':login': return L('login', 'log_login');
+    case 'sales:insert': return L('sale', 'log_sale', `${esc((d.lines || []).map(l => l.name + (+l.qty > 1 ? ' ×' + l.qty : '')).join(', '))} — <b>${money(d.total)}</b>${d.customer_name ? ' · ' + esc(d.customer_name) : ''}`);
+    case 'sales:update': return L('edit', 'log_sale_edit', `${esc((row.lines || []).map(l => l.name).join(', ') || money(row.total))}${diff ? ' — ' + diff : ''}${d.lines ? ' · ' + esc(t('lines')) : ''}`);
+    case 'sales:delete': return L('cancel', 'log_sale_void', `${esc((d.lines || []).map(l => l.name).join(', '))} — ${money(d.total)}`);
+    case 'rentals:insert': return L('rent', 'log_rent', `${veh(d)} · ${esc(d.customer_name || '')} — <b>${money(d.price)}</b>`);
+    case 'rentals:update': {
+      if (!ch.length) return null;
+      if (d.status?.to === 'returned') return L('ret', 'log_rent_return', `${veh(row)} · ${esc(row.customer_name || '')}${+row.late_fee ? ` — ${esc(t('late_fee'))} <b>${money(row.late_fee)}</b>` : ''}`);
+      if (d.status?.to === 'cancelled') return L('cancel', 'log_rent_cancel', `${veh(row)} · ${esc(row.customer_name || '')} — ${money(row.price)}`);
+      return L('edit', 'log_rent_edit', `${veh(row)} · ${esc(row.customer_name || '')} — ${diff}`);
+    }
+    case 'rentals:delete': return L('cancel', 'log_rent_cancel', `${veh(d)} · ${esc(d.customer_name || '')}`);
+    case 'products:insert': return L('stock', 'log_prod_add', `${esc(d.name || '')}${d.code ? ' (' + esc(d.code) + ')' : ''} · ${d.qty} · ${money(d.price)}`);
+    case 'products:update': if (!ch.length || (ch.every(k => k === 'qty') && saleTx.has(e.txid))) return null; return L('stock', 'log_prod_edit', `${esc(row.name || '')} — ${diff}`);
+    case 'products:delete': return L('cancel', 'log_prod_del', esc(d.name || ''));
+    case 'customers:insert': return L('cust', 'log_cust_add', `${esc(d.name || '')} ${esc(d.phone || '')}`);
+    case 'customers:update': if (!ch.length) return null; return L('cust', 'log_cust_edit', `${esc(row.name || '')} — ${diff}`);
+    case 'customers:delete': return L('cancel', 'log_cust_del', esc(d.name || ''));
+    case 'fleet:insert': case 'fleet:update': case 'fleet:delete': return L('fleet', 'log_fleet', `${esc(fleetLabel(row))}${diff ? ' — ' + diff : ''}`);
+    case 'settings:update': return ch.length ? L('set', 'log_settings', ch.map(k => esc(LOGF[k] ? t(LOGF[k]) : k)).join(', ')) : null;
+    case 'staff:staff_create': return L('staff', 'log_staff_create', `${esc(d.name || '')} · ${esc(logVal('role', d.role))}`);
+    case 'staff:staff_update': return L('staff', 'log_staff_edit', `${esc(d.who || '')} — ${Object.keys(d).filter(k => k !== 'who' && d[k] != null).map(k => `${esc(LOGF[k] ? t(LOGF[k]) : k)}: ${esc(k === 'password' ? '***' : logVal(k, d[k]))}`).join(' · ')}`);
+  }
+  return { e, icon:'•', text:esc(e.tbl + ' ' + e.action) };
+}
 
 /* ================= render ================= */
 function render(){ if (!S.user) return; ({ sale:renderSale, stock:renderStock, rent:renderRent, customers:renderCustomers, report:renderReport, settings:renderSettings })[S.tab](); }
