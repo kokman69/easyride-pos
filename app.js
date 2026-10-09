@@ -185,7 +185,12 @@ const ICONS = {
 };
 const isSimple = () => document.documentElement.classList.contains('simple');
 function paintMode(){
-  $('mode-btn').textContent = t(isSimple() ? 'mode_full' : 'mode_simple');
+  const mb = $('mode-btn'), lab = t(isSimple() ? 'mode_full' : 'mode_simple');
+  // shows where the button takes you: a monitor = full version, a phone = simple version
+  mb.innerHTML = isSimple()
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></svg>';
+  mb.title = lab; mb.setAttribute('aria-label', lab);
   document.querySelectorAll('details.more').forEach(d => { if (!isSimple()) d.open = true; else if (!d.dataset.touched) d.open = false; });
 }
 $('mode-btn').onclick = () => { document.documentElement.classList.toggle('simple'); ls.set('er-mode', isSimple() ? 'simple' : 'full'); document.querySelectorAll('details.more').forEach(d => delete d.dataset.touched); paintMode(); buildTabs(); render(); };
@@ -1080,7 +1085,11 @@ function render(){ if (!S.user) return; ({ sale:renderSale, stock:renderStock, r
 function renderAll(){
   applyI18n(); buildTabs();
   $('who-name').textContent = S.user?.name || '';
-  $('who-role').textContent = S.user ? t(isAdmin() ? 'role_admin' : 'role_cons') : '';
+  const rl = S.user ? t(isAdmin() ? 'role_admin' : 'role_cons') : '';
+  $('who-role').innerHTML = !S.user ? '' : isAdmin()
+    ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.55 4.43 1.07 6.27L12 17.2l-5.62 2.9 1.07-6.27L2.9 9.4l6.3-.9z"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
+  $('who-role').title = rl; $('who-role').setAttribute('aria-label', rl); $('who-role').setAttribute('role', 'img');
   $('who-role').className = 'role' + (isAdmin() ? ' admin' : '');
   ['c-cust','r-cust'].forEach(id => mountPicker(id));
   render();
