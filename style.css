@@ -356,3 +356,7 @@ html.simple .receipt{display:flex!important;position:static!important;inset:auto
 .logday{position:sticky;top:0;background:var(--bg);font-weight:700;font-size:12px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--line)}
 .logrow{display:grid;grid-template-columns:44px 22px minmax(0,1fr);gap:6px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.4}
 .logrow:last-child{border-bottom:0}
+
+/* rental: vehicle video */
+.vidbox video,.vrec{width:100%;max-height:60vh;border-radius:10px;background:#000;display:block}
+.scan.up{border-style:solid}

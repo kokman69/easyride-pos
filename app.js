@@ -365,7 +365,10 @@ const PICK = {};
 const custMatch = (c, qq) => [c.name, c.phone, c.id_number].join(' ').toLowerCase().includes(qq.toLowerCase());
 const EMPTY_DRAFT = () => ({ name:'', phone:'', id_number:'', birth_date:'', nationality:'', doc_type:'', doc_expiry:'' });
 const freshPick = () => ({ mode:'search', id:null, draft:EMPTY_DRAFT(), patch:null, photo:null, preview:'', q:'', msg:null });
-const scanBtn = () => `<label class="btn small scan">${esc(t('scan_id'))}<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>`;
+const scanBtn = () => `<label class="btn small scan">${esc(t('scan_id'))}<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>`
+  + `<label class="btn small scan up">${esc(t('upload_id'))}<input type="file" accept="image/*" data-act="scan" hidden></label>`;
+const photoBtns = (style = '') => `<span class="row" style="gap:6px;${style}"><label class="btn small">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="file" hidden></label>`
+  + `<label class="btn small">${esc(t('upload_photo'))}<input type="file" accept="image/*" data-act="file" hidden></label></span>`;
 const msgHtml = st => st.msg ? `<div class="scanmsg ${st.msg[1]}">${esc(t(st.msg[0]))}</div>` : '';
 function mountPicker(boxId, force){
   const st = PICK[boxId] ??= freshPick();
@@ -381,7 +384,7 @@ function mountPicker(boxId, force){
       <div class="small" style="margin-top:4px">${st.photo ? `<span class="tag">${esc(t('cust_photo_new'))}</span>` : c.photo ? `<button type="button" class="btn ghost small" data-act="view" style="padding-left:0">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}</div></div>
       <button type="button" class="btn small" data-act="change">${esc(t('cust_change'))}</button></div>
       ${msgHtml(st)}
-      <label class="btn small" style="align-self:flex-start">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="file" hidden></label></div>`;
+      ${photoBtns('align-self:flex-start')}</div>`;
   } else if (st.mode === 'new') {
     const d = st.draft;
     box.innerHTML = `<div class="cust"><div class="scanrow">${scanBtn()}${st.preview ? `<img class="thumb" src="${st.preview}" alt="">` : ''}</div>${msgHtml(st)}
@@ -393,7 +396,7 @@ function mountPicker(boxId, force){
       <label class="f">${esc(t('cust_nat'))}<input data-k="nationality" value="${esc(d.nationality)}" autocomplete="off" maxlength="40"></label>
       <label class="f">${esc(t('cust_doc'))}<select data-k="doc_type"><option value=""></option>${['passport','id'].map(k => `<option value="${k}" ${d.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
       <label class="f">${esc(t('doc_expiry'))}<input data-k="doc_expiry" type="date" value="${esc(d.doc_expiry)}"></label></div>
-      <div class="row"><label class="btn small">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="file" hidden></label>
+      <div class="row">${photoBtns()}
       <button type="button" class="btn ghost small" data-act="back">${esc(t('cust_back'))}</button></div></div>`;
   } else {
     box.innerHTML = `<div class="cust"><div class="row" style="flex-wrap:nowrap"><input type="search" data-act="q" value="${esc(st.q)}" placeholder="${esc(t('cust_search_ph'))}">
@@ -767,10 +770,10 @@ function renderRent(){
   $('r-type').innerHTML = T.map((x, i) => `<option value="${i}" ${String(i) === curT ? 'selected' : ''}>${esc(tType(x.type))}</option>`).join('');
   fillRates(false); fillUnits();
   $('r-seller').innerHTML = sellerOpts($('r-seller').value || S.user?.name);
-  mountPicker('r-cust');
+  mountPicker('r-cust'); if (!$('r-video').childElementCount) renderVideo();
   const act = S.rentals.filter(r => r.status === 'active');
   const lateTag = r => { const l = lateCalc(r); return l.fee ? `<div class="small due late num">+${money(l.fee)} · ${l.hours} ${esc(t('hours_short'))}</div>` : ''; };
-  const cBtn = r => r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '';
+  const cBtn = r => (r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '') + (r.video ? `<button class="btn ghost small" data-act="video">🎥 ${esc(t('video_short'))}</button>` : '');
   const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
       <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit)}` : ''}</div>${cBtn(r)}${eBtn()}</div>
@@ -792,19 +795,20 @@ function fillRates(setPrice = true){
   if (setPrice) delete $('r-end').dataset.manual;
   setEnd(false);
 }
-const stockLabel = p => [pName(p), p.color, p.year].filter(Boolean).join(' · ');
+const stockLabel = p => [pName(p), p.color, p.code ? '№ ' + p.code : ''].filter(Boolean).join(' · ');
 function unitOptions(type){
   const busy = new Set(S.rentals.filter(r => r.status === 'active').flatMap(r => [r.unit_id && 'f:' + r.unit_id, r.product_id && 'p:' + r.product_id]).filter(Boolean));
   const byLabel = (a, b) => a.label.localeCompare(b.label, undefined, { numeric:true });
-  const fleet = S.fleet.filter(f => f.type === type).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).sort(byLabel);
-  const stock = S.products.filter(p => p.type === type && +p.qty > 0).map(p => ({ key:'p:' + p.id, label:stockLabel(p) })).sort(byLabel);
+  // only units with a frame number can be rented out — the number is shown in the list
+  const fleet = S.fleet.filter(f => f.type === type && String(f.number || '').trim()).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).sort(byLabel);
+  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && String(p.code || '').trim()).map(p => ({ key:'p:' + p.id, label:stockLabel(p) })).sort(byLabel);
   return { busy, groups:[['grp_fleet', fleet], ['grp_stock', stock]].filter(([, l]) => l.length) };
 }
 function fillUnits(){
   const x = curTariff(), cur = $('r-unit').value;
   const { busy, groups } = x ? unitOptions(x.type) : { busy:new Set(), groups:[] };
   $('r-unit').innerHTML = `<option value="">${esc(t('choose_unit'))}</option>` + groups.map(([g, list]) => `<optgroup label="${esc(t(g))}">${list.map(u => `<option value="${u.key}" ${busy.has(u.key) ? 'disabled' : ''} ${u.key === cur && !busy.has(u.key) ? 'selected' : ''}>${esc(u.label)}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`).join('')}</optgroup>`).join('');
-  $('r-unit-hint').hidden = groups.length > 0; $('r-unit-hint').textContent = t('unit_none');
+  $('r-unit-hint').hidden = groups.length > 0; $('r-unit-hint').textContent = t('unit_none_vin');
 }
 $('r-type').onchange = () => { $('r-rate').value = '0'; fillRates(true); fillUnits(); };
 $('r-rate').onchange = () => fillRates(true);
@@ -874,6 +878,68 @@ async function viewContract(r){
   if (r.signature) { try { url = (await q(sb.storage.from('id-photos').createSignedUrl(r.signature, 600))).signedUrl; if ($('cv-body')) paint(); } catch(e){ console.error(e); } }
 }
 
+/* ---------- video of the vehicle at hand-over (proof of condition for the deposit) ---------- */
+const VID_MAX = 50 * 1024 * 1024;
+let RV = null;   // { blob, url, ext }
+const vidExt = type => /mp4/.test(type) ? 'mp4' : /quicktime|mov/.test(type) ? 'mov' : /3gpp/.test(type) ? '3gp' : 'webm';
+const canRecord = () => !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+function setVideo(blob){
+  if (RV?.url) URL.revokeObjectURL(RV.url);
+  RV = blob ? { blob, url:URL.createObjectURL(blob), ext:vidExt(blob.type || '') } : null; renderVideo();
+}
+function renderVideo(){
+  const box = $('r-video'); if (!box) return;
+  box.innerHTML = RV
+    ? `<video src="${RV.url}" controls playsinline preload="metadata"></video>
+       <div class="row between"><span class="small muted num">${(RV.blob.size / 1048576).toFixed(1)} MB</span><button type="button" class="btn ghost small danger" data-vact="rm">${esc(t('remove'))}</button></div>`
+    : `<div class="row" style="gap:6px">${canRecord() ? `<button type="button" class="btn small" data-vact="rec">🎥 ${esc(t('video_record'))}</button>` : `<label class="btn small">🎥 ${esc(t('video_record'))}<input type="file" accept="video/*" capture="environment" data-vact="file" hidden></label>`}
+       <label class="btn small">${esc(t('video_upload'))}<input type="file" accept="video/*" data-vact="file" hidden></label></div>
+       <div class="small muted">${esc(t('video_hint'))}</div>`;
+}
+$('r-video').onclick = e => { const a = e.target.closest('[data-vact]')?.dataset.vact; if (a === 'rm') setVideo(null); else if (a === 'rec') recordVideo(); };
+$('r-video').onchange = e => {
+  const f = e.target.files?.[0]; if (!f) return;
+  if (f.size > VID_MAX) { toast(t('video_too_big')); e.target.value = ''; return; }
+  setVideo(f);
+};
+/* in-app recorder: 720p at a low bitrate, so a 2-minute walk-around stays well under the size limit */
+async function recordVideo(){
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false }); }
+  catch(e){ console.error(e); toast(t('camera_denied')); return; }
+  const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(m => MediaRecorder.isTypeSupported?.(m)) || '';
+  let rec = null, chunks = [], t0 = 0, timer = null;
+  const stop = () => { stream.getTracks().forEach(x => x.stop()); clearInterval(timer); };
+  openOv(`<div class="row between"><h2>${esc(t('video_record'))}</h2><button type="button" class="btn" id="vr-x">${esc(t('close'))}</button></div>
+    <video id="vr-v" autoplay muted playsinline class="vrec"></video>
+    <div class="row between"><b class="num" id="vr-t">0:00</b><span class="small muted">${esc(t('video_max'))}</span></div>
+    <button type="button" class="btn primary big" id="vr-go">● ${esc(t('video_start'))}</button>`);
+  $('vr-v').srcObject = stream;
+  $('vr-x').onclick = () => { if (rec && rec.state !== 'inactive') { rec.onstop = null; rec.stop(); } stop(); closeOv(); };
+  $('vr-go').onclick = () => {
+    if (rec && rec.state === 'recording') { rec.stop(); return; }
+    chunks = []; rec = new MediaRecorder(stream, mime ? { mimeType:mime, videoBitsPerSecond:1500000 } : { videoBitsPerSecond:1500000 });
+    rec.ondataavailable = ev => { if (ev.data?.size) chunks.push(ev.data); };
+    rec.onstop = () => { stop(); const blob = new Blob(chunks, { type:(rec.mimeType || mime || 'video/webm').split(';')[0] }); closeOv(); if (blob.size > VID_MAX) { toast(t('video_too_big')); return; } setVideo(blob); };
+    rec.start(1000); t0 = Date.now();
+    $('vr-go').textContent = '■ ' + t('video_stop'); $('vr-go').classList.add('danger');
+    timer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); if ($('vr-t')) $('vr-t').textContent = `${Math.floor(s / 60)}:${pad(s % 60)}`; if (s >= 180) rec.stop(); }, 500);
+  };
+}
+async function uploadRentalVideo(rentalId){
+  if (!RV) return;
+  const v = RV, path = `${rentalId}.${v.ext}`;
+  toast(t('video_uploading'));
+  try { await uploadBlob('rental-videos', path, v.blob, v.blob.type || 'video/' + v.ext); await q(sb.from('rentals').update({ video:path }).eq('id', rentalId)); setVideo(null); }
+  catch(e){ console.error(e); toast(t('video_fail')); }
+}
+async function viewVideo(path){
+  if (!path) return;
+  openOv(`<div class="row between"><h2>${esc(t('veh_video'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div><div id="vv-box" class="muted">${esc(t('loading'))}</div>`);
+  try { const d = await q(sb.storage.from('rental-videos').createSignedUrl(path, 3600)); const b = $('vv-box'); if (b) b.innerHTML = `<video class="vrec" src="${esc(d.signedUrl)}" controls playsinline autoplay></video>`; }
+  catch(e){ fail(e); }
+}
+
 $('r-save').onclick = async () => {
   const x = curTariff(); if (!x) return;
   const uv = $('r-unit').value, kind = uv.slice(0, 2), uid_ = uv.slice(2);
@@ -904,11 +970,14 @@ $('r-save').onclick = async () => {
     const saved = await q(sb.from('rentals').insert({ ...row, contract:{ v:1, lang:sig.lang, signed_at:signedAt, raw } }).select().single());
     try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).eq('id', saved.id)); }
     catch(e){ console.error(e); toast(t('sign_fail')); }
+    await uploadRentalVideo(saved.id);
     $('r-dep').value = 0; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
     await reload('rentals', 'customers');
     showReport('rental', rentalReportData(S.rentals.find(y => y.id === saved.id) || { ...saved, contract:true }));
   } catch(e){ fail(e); } finally { btn.disabled = false; }
 };
+$('r-active').addEventListener('click', e => { const vb = e.target.closest('[data-act="video"]'); if (vb) viewVideo(S.rentals.find(r => r.id === vb.closest('[data-id]').dataset.id)?.video); });
+$('r-history').addEventListener('click', e => { const vb = e.target.closest('[data-act="video"]'); if (vb) viewVideo(S.rentals.find(r => r.id === vb.closest('[data-id]').dataset.id)?.video); });
 $('r-active').onclick = async e => {
   const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
   const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; }
@@ -1010,7 +1079,7 @@ function rentalReportData(r){
   return { item: lg => [tL('t_' + r.type, lg), r.unit_label].filter(Boolean).join(' · '), period: lg => rateLabel(r.rate, lg),
     fee: repMoney('GEL')(r.price), payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? repMoney('GEL')(r.deposit) : '',
     cust: r.customer_name || c.name || '', tel: r.phone || c.phone || '', nat: c.nationality || raw.nat || '',
-    docPhoto: !!c.photo, signed: !!r.contract, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
+    docPhoto: !!c.photo, signed: !!r.contract, video: !!r.video, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
 }
 function repLangs(){ try { const v = JSON.parse(ls.get('er-rep-langs') || 'null'); if (Array.isArray(v) && v.length) return v; } catch(e){} return ['en', 'ja']; }
 function showReport(kind, data){
@@ -1071,10 +1140,11 @@ function openCustomer(c){
       <label class="f">${esc(t('cust_doc'))}<select id="kf-doc"><option value=""></option>${['passport','id'].map(k => `<option value="${k}" ${c?.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
       <label class="f">${esc(t('doc_expiry'))}<input id="kf-exp" type="date" value="${esc(c?.doc_expiry || '')}"></label></div>
     <div class="row"><span id="kf-ph">${c?.photo ? `<button type="button" class="btn ghost small" id="kf-view">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}</span>
-      <label class="btn small">${esc(t('cust_photo_add'))}<input type="file" id="kf-file" accept="image/*" capture="environment" hidden></label></div>
+      <label class="btn small">${esc(t('cust_photo_add'))}<input type="file" class="kf-file" accept="image/*" capture="environment" hidden></label>
+      <label class="btn small">${esc(t('upload_photo'))}<input type="file" class="kf-file" accept="image/*" hidden></label></div>
     <button class="btn primary big" type="submit" id="kf-save">${esc(t('save'))}</button></form>`);
   if ($('kf-view')) $('kf-view').onclick = () => viewIdPhoto(c.photo);
-  $('kf-file').onchange = async e => { if (!e.target.files[0]) return; toast(t('photo_saving')); try { photo = await compressImage(e.target.files[0], 1600, .8); $('kf-ph').innerHTML = `<img class="thumb" src="${URL.createObjectURL(photo)}" alt="">`; } catch(err){ toast(t('photo_fail')); } };
+  document.querySelectorAll('.kf-file').forEach(inp => inp.onchange = async e => { if (!e.target.files[0]) return; toast(t('photo_saving')); try { photo = await compressImage(e.target.files[0], 1600, .8); $('kf-ph').innerHTML = `<img class="thumb" src="${URL.createObjectURL(photo)}" alt="">`; } catch(err){ toast(t('photo_fail')); } });
   $('kf').onsubmit = async e => {
     e.preventDefault();
     const d = nullDates({ name:$('kf-name').value.trim(), phone:$('kf-phone').value.trim(), id_number:$('kf-id').value.trim(),

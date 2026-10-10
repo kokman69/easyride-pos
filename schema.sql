@@ -754,3 +754,15 @@ begin
 end $$;
 drop trigger if exists item_code on public.products;
 create trigger item_code before insert or update of code, type on public.products for each row execute function public.item_code_trg();
+
+-- ---------- v11: video of the vehicle at hand-over (proof of condition for the deposit) ----------
+alter table public.rentals add column if not exists video text default '';
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types) values
+  ('rental-videos', 'rental-videos', false, 52428800, array['video/mp4','video/webm','video/quicktime','video/3gpp','video/x-matroska'])
+on conflict (id) do update set file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+drop policy if exists rental_videos_staff_read on storage.objects;
+drop policy if exists rental_videos_staff_insert on storage.objects;
+drop policy if exists rental_videos_admin_delete on storage.objects;
+create policy rental_videos_staff_read on storage.objects for select to authenticated using (bucket_id = 'rental-videos' and public.is_staff());
+create policy rental_videos_staff_insert on storage.objects for insert to authenticated with check (bucket_id = 'rental-videos' and public.is_staff());
+create policy rental_videos_admin_delete on storage.objects for delete to authenticated using (bucket_id = 'rental-videos' and public.is_admin());

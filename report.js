@@ -9,7 +9,7 @@ window.ER_REPORT = (function () {
       model: 'მოდელი', vin: 'VIN', paid: 'გადახდილი თანხა', pay: 'გადახდის მეთოდი', buyer: 'მყიდველი', nat: 'მოქალაქეობა',
       seller: 'გამყიდველი', code: 'კოდი', total: 'სულ', disc: 'ფასდაკლება', note: 'შენიშვნა',
       item: 'გაქირავებული', period: 'ვადა', fee: 'ქირის საფასური', dep: 'დეპოზიტი', cust: 'მომხმარებელი', tel: 'ტელ.',
-      start: 'დაწყება', end: 'დასრულება', doc: 'პასპორტი / ID', docTaken: 'ფოტო გადაღებულია, ასლი შენახულია',
+      start: 'დაწყება', end: 'დასრულება', vid: 'ტრანსპორტის ვიდეო', vidTaken: 'გადაღებულია გატანისას', doc: 'პასპორტი / ID', docTaken: 'ფოტო გადაღებულია, ასლი შენახულია',
       late: 'დაგვიანებით დაბრუნება', h: 'სთ', agr: 'ხელშეკრულება', agrSigned: 'ხელმოწერილია ელექტრონულად'
     },
     en: {
@@ -17,7 +17,7 @@ window.ER_REPORT = (function () {
       model: 'Model', vin: 'VIN', paid: 'Amount paid', pay: 'Payment method', buyer: 'Buyer', nat: 'Nationality',
       seller: 'Seller', code: 'code', total: 'Total', disc: 'Discount', note: 'Note',
       item: 'Rental item', period: 'Rental period', fee: 'Rental fee', dep: 'Deposit', cust: 'Customer', tel: 'Tel',
-      start: 'Rental start', end: 'Rental end', doc: 'Passport / ID', docTaken: 'photo taken, copy retained',
+      start: 'Rental start', end: 'Rental end', vid: 'Vehicle video', vidTaken: 'recorded at hand-over', doc: 'Passport / ID', docTaken: 'photo taken, copy retained',
       late: 'Late return', h: 'h', agr: 'Rental agreement', agrSigned: 'signed electronically'
     },
     ru: {
@@ -25,7 +25,7 @@ window.ER_REPORT = (function () {
       model: 'Модель', vin: 'VIN', paid: 'Оплачено', pay: 'Способ оплаты', buyer: 'Покупатель', nat: 'Гражданство',
       seller: 'Продавец', code: 'код', total: 'Итого', disc: 'Скидка', note: 'Примечание',
       item: 'Предмет аренды', period: 'Срок аренды', fee: 'Стоимость аренды', dep: 'Депозит', cust: 'Клиент', tel: 'Тел.',
-      start: 'Начало аренды', end: 'Окончание аренды', doc: 'Паспорт / ID', docTaken: 'фото сделано, копия сохранена',
+      start: 'Начало аренды', end: 'Окончание аренды', vid: 'Видео транспорта', vidTaken: 'снято при выдаче', doc: 'Паспорт / ID', docTaken: 'фото сделано, копия сохранена',
       late: 'Возврат с опозданием', h: 'ч', agr: 'Договор аренды', agrSigned: 'подписан электронно'
     },
     ja: {
@@ -33,7 +33,7 @@ window.ER_REPORT = (function () {
       model: 'モデル', vin: '車台番号', paid: '支払金額', pay: '支払方法', buyer: '購入者', nat: '国籍',
       seller: '担当者', code: 'コード', total: '合計', disc: '割引', note: 'メモ',
       item: 'レンタル品', period: 'レンタル期間', fee: 'レンタル料金', dep: 'デポジット', cust: 'お客様', tel: '電話',
-      start: 'レンタル開始', end: 'レンタル終了', doc: '旅券 / 身分証', docTaken: '写真撮影済み、コピー保管',
+      start: 'レンタル開始', end: 'レンタル終了', vid: '車両の動画', vidTaken: '貸出時に撮影済み', doc: '旅券 / 身分証', docTaken: '写真撮影済み、コピー保管',
       late: '返却遅延', h: '時間', agr: 'レンタル契約', agrSigned: '電子署名済み'
     }
   };
@@ -71,7 +71,7 @@ window.ER_REPORT = (function () {
     const w = W[lg];
     return join([r.today ? w.rentReq : w.rentOn(r.date), line(w.item, r.item(lg)), line(w.period, r.period(lg)), line(w.fee, r.fee), r.late ? line(w.late, `${r.late.hours} ${w.h} — +${r.late.fee} (${w.total}: ${r.late.total})`) : '', line(w.pay, r.payLabel(lg)),
       line(w.dep, r.deposit), line(w.cust, r.cust), line(w.tel, r.tel), line(w.nat, country(r.nat, lg)),
-      r.docPhoto ? line(w.doc, w.docTaken) : '', r.signed ? line(w.agr, w.agrSigned) : '',
+      r.docPhoto ? line(w.doc, w.docTaken) : '', r.signed ? line(w.agr, w.agrSigned) : '', r.video ? line(w.vid, w.vidTaken) : '',
       line(w.start, r.start), line(w.end, r.end), line(w.seller, r.seller)]);
   }
   function build(kind, data, langs) {
