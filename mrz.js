@@ -88,5 +88,33 @@
   // an 11-digit Georgian personal number printed on the front of an ID card
   const personalFromText = text => (String(text || '').match(/(?<!\d)\d{11}(?!\d)/) || [''])[0];
 
-  root.MRZ = { parse, personalFromText, check };
+  /* front side of an ID card / data page of a passport, read as plain text (Latin part):
+     labels like "Surname", "Given name(s)", dates DD.MM.YYYY, the 11-digit personal number */
+  function frontFromText(text){
+    const lines = String(text || '').split(/\n/).map(l => l.replace(/[|_~«»"'`]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const latinWord = l => (l.match(/\b[A-Z][A-Z-]{1,}(?:\s+[A-Z][A-Z-]{1,})*\b/) || [''])[0];
+    const after = (re, stop) => {
+      for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(re); if (!m) continue;
+        const rest = lines[i].slice(m.index + m[0].length).replace(/^[\s:\/.,-]+/, '');
+        const own = latinWord(rest.replace(/[a-z]+/g, ' ').trim());
+        if (own && !stop.test(own)) return own;
+        for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) { const w = latinWord(lines[j]); if (w && !stop.test(w) && w.length > 1) return w; }
+      }
+      return '';
+    };
+    const STOP = /^(SURNAME|NAME|NAMES|GIVEN|SEX|DATE|BIRTH|PERSONAL|NO|CARD|GEO|GEORGIA|NATIONALITY|PLACE|EXPIRY|ISSUE|AUTHORITY|PASSPORT|ID|M|F)$/;
+    const surname = after(/\bsur\s*name\b/i, STOP);
+    const given = after(/\b(given\s*names?|first\s*names?|(?<!sur\s?)name)\b/i, STOP);
+    const dates = [...String(text || '').matchAll(/\b([0-3]\d)[.\/ -]([01]\d)[.\/ -]((?:19|20)\d\d)\b/g)]
+      .map(m => `${m[3]}-${m[2]}-${m[1]}`).filter(d => !isNaN(new Date(d))).sort();
+    const today = new Date().toISOString().slice(0, 10), adult = String(new Date().getFullYear() - 14);
+    const birth = dates.find(d => d.slice(0, 4) <= adult) || '';
+    const expiry = [...dates].reverse().find(d => d > today) || '';
+    const personal = personalFromText(text);
+    if (!surname && !given && !personal) return null;
+    return { partial: !(surname || given), surname, given, personal, birth, expiry };
+  }
+
+  root.MRZ = { parse, personalFromText, frontFromText, check };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -339,11 +339,18 @@ async function readDocument(file){
     if (goodMrz(best) && best.valid) break;
   }
   if (goodMrz(best)) return best;
-  // front side of a Georgian ID card: at least the 11-digit personal number
+  // front side of an ID card (or a passport page without a readable MRZ): names, dates, personal number from the Latin text
   await w.setParameters({ tessedit_char_whitelist:'' });
-  const { data } = await w.recognize(prep(bmp, 0, 1700));
-  const pn = window.MRZ.personalFromText(data.text);
-  return pn ? { partial:true, personal:pn, kind:'id', nationality:'GEO' } : null;
+  let front = null;
+  for (const rot of [0, 90, -90]) {
+    const { data } = await w.recognize(prep(bmp, rot, 1700));
+    const f = window.MRZ.frontFromText(data.text);
+    if (f && (!front || (!front.surname && f.surname) || (!front.personal && f.personal))) front = f;
+    if (front && front.surname && front.personal) break;
+  }
+  if (!front) return null;
+  if (best?.nationality) front.nationality = best.nationality;
+  return { ...front, kind: front.personal ? 'id' : '', nationality: front.nationality || (front.personal ? 'GEO' : ''), valid:false };
 }
 const titleCase = s => String(s || '').toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
 function ageOf(iso){
@@ -367,8 +374,8 @@ const EMPTY_DRAFT = () => ({ name:'', phone:'', id_number:'', birth_date:'', nat
 const freshPick = () => ({ mode:'search', id:null, draft:EMPTY_DRAFT(), patch:null, photo:null, preview:'', q:'', msg:null });
 const scanBtn = () => `<label class="btn small scan">${esc(t('scan_id'))}<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>`
   + `<label class="btn small scan up">${esc(t('upload_id'))}<input type="file" accept="image/*" data-act="scan" hidden></label>`;
-const photoBtns = (style = '') => `<span class="row" style="gap:6px;${style}"><label class="btn small">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="file" hidden></label>`
-  + `<label class="btn small">${esc(t('upload_photo'))}<input type="file" accept="image/*" data-act="file" hidden></label></span>`;
+const photoBtns = (style = '') => `<span class="row" style="gap:6px;${style}"><label class="btn small">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>`
+  + `<label class="btn small">${esc(t('upload_photo'))}<input type="file" accept="image/*" data-act="scan" hidden></label></span>`;
 const msgHtml = st => st.msg ? `<div class="scanmsg ${st.msg[1]}">${esc(t(st.msg[0]))}</div>` : '';
 function mountPicker(boxId, force){
   const st = PICK[boxId] ??= freshPick();
@@ -384,6 +391,7 @@ function mountPicker(boxId, force){
       <div class="small" style="margin-top:4px">${st.photo ? `<span class="tag">${esc(t('cust_photo_new'))}</span>` : c.photo ? `<button type="button" class="btn ghost small" data-act="view" style="padding-left:0">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}</div></div>
       <button type="button" class="btn small" data-act="change">${esc(t('cust_change'))}</button></div>
       ${msgHtml(st)}
+      <label class="f">${esc(t('cust_phone'))}<input data-k="phone" data-sel="1" type="tel" inputmode="tel" value="${esc(st.patch?.phone ?? c0.phone ?? '')}" autocomplete="off" placeholder="+995 5__ __ __ __"></label>
       ${photoBtns('align-self:flex-start')}</div>`;
   } else if (st.mode === 'new') {
     const d = st.draft;
@@ -396,7 +404,7 @@ function mountPicker(boxId, force){
       <label class="f">${esc(t('cust_nat'))}<input data-k="nationality" value="${esc(d.nationality)}" autocomplete="off" maxlength="40"></label>
       <label class="f">${esc(t('cust_doc'))}<select data-k="doc_type"><option value=""></option>${['passport','id'].map(k => `<option value="${k}" ${d.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
       <label class="f">${esc(t('doc_expiry'))}<input data-k="doc_expiry" type="date" value="${esc(d.doc_expiry)}"></label></div>
-      <div class="row">${photoBtns()}
+      <div class="row">
       <button type="button" class="btn ghost small" data-act="back">${esc(t('cust_back'))}</button></div></div>`;
   } else {
     box.innerHTML = `<div class="cust"><div class="row" style="flex-wrap:nowrap"><input type="search" data-act="q" value="${esc(st.q)}" placeholder="${esc(t('cust_search_ph'))}">
@@ -416,6 +424,7 @@ function mountPicker(boxId, force){
     box.addEventListener('input', e => {
       const s = PICK[boxId], k = e.target.dataset.k;
       if (e.target.dataset.act === 'q') { s.q = e.target.value; pickerResults(boxId); }
+      else if (k && e.target.dataset.sel) { s.patch = { ...(s.patch || {}), [k]: e.target.value }; }
       else if (k) { s.draft[k] = e.target.value; if (k === 'birth_date' || k === 'doc_expiry') { const sl = box.querySelector('.age-slot'); if (sl) sl.innerHTML = ageChip(s.draft); } }
     });
     box.addEventListener('change', async e => {
@@ -429,20 +438,21 @@ function mountPicker(boxId, force){
   }
 }
 async function scanInto(boxId, file){
-  const s = PICK[boxId];
+  const s = PICK[boxId], wasSel = s.mode === 'selected';
   if (s.mode === 'search') s.mode = 'new';
   s.msg = ['scanning', '']; mountPicker(boxId, true);
   let r = null;
   try { r = await readDocument(file); } catch(err){ console.error(err); }
   if (!r) { s.msg = ['scan_fail', 'bad']; if (s.mode !== 'selected') s.mode = 'new'; mountPicker(boxId, true); return; }
   const data = {
-    name: r.partial ? '' : titleCase([r.given, r.surname].filter(Boolean).join(' ')),
+    name: titleCase([r.given, r.surname].filter(Boolean).join(' ')),
     id_number: r.personal || r.number || '', birth_date: r.birth || '', nationality: r.nationality || '',
     doc_type: r.kind || '', doc_expiry: r.expiry || ''
   };
   const ids = [r.personal, r.number].filter(Boolean);
   const known = S.customers.find(c => c.id_number && ids.includes(String(c.id_number).replace(/\s/g, '')));
-  if (known) Object.assign(s, { mode:'selected', id:known.id, patch:data, msg:['scan_existing', 'ok'] });
+  if (wasSel && (!known || known.id === s.id)) Object.assign(s, { patch:{ ...(s.patch || {}), ...Object.fromEntries(Object.entries(data).filter(([, v]) => v)) }, msg:['scan_ok', 'ok'] });
+  else if (known) Object.assign(s, { mode:'selected', id:known.id, patch:{ ...data, phone:(s.mode === 'new' && s.draft.phone) || '' }, msg:['scan_existing', 'ok'] });
   else {
     const keep = s.mode === 'new' ? s.draft : EMPTY_DRAFT();
     s.mode = 'new';
@@ -471,7 +481,7 @@ async function resolveCustomer(boxId){
   const st = PICK[boxId]; if (!st) return null;
   if (st.mode === 'selected') {
     let c = S.customers.find(x => x.id === st.id); if (!c) return null;
-    const fill = Object.fromEntries(Object.entries(st.patch || {}).filter(([k, v]) => v && (!c[k] || CUST_EXTRA.includes(k))));
+    const fill = Object.fromEntries(Object.entries(st.patch || {}).filter(([k, v]) => v && (!c[k] || CUST_EXTRA.includes(k) || (k === 'phone' && String(v).trim() !== String(c.phone || '')))));
     delete fill.name;
     if (Object.keys(fill).length) { c = await q(sb.from('customers').update(fill).eq('id', c.id).select().single()); }
     if (st.photo) await saveIdPhoto(c.id, st.photo);
@@ -953,7 +963,9 @@ $('r-save').onclick = async () => {
     let cust = null;
     { const st = PICK['r-cust'], pre = st?.mode === 'selected' ? S.customers.find(c => c.id === st.id) : null;
       if (!st || st.mode === 'search') { toast(t('need_customer')); return; }
-      if (!hasIdPhoto('r-cust', pre)) { toast(t('need_id_photo')); return; } }
+      if (!hasIdPhoto('r-cust', pre)) { toast(t('need_id_photo')); return; }
+      const ph = st.mode === 'new' ? st.draft.phone : (st.patch?.phone ?? pre?.phone);
+      if (!String(ph || '').trim()) { toast(t('need_phone')); $('r-cust').querySelector('[data-k="phone"]')?.focus(); return; } }
     try { cust = await resolveCustomer('r-cust'); } catch(e){ if (e.message === 'name') { toast(t('cust_need_name')); return; } throw e; }
     if (!cust) { toast(t('need_customer')); return; }
     const rv = $('r-rate').value, r = x.rates?.[+rv], rate = rv === 'x' ? { other:true } : r ? { n:r.n, u:r.u, p:r.p } : null;
