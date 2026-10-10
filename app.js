@@ -691,7 +691,8 @@ function openProduct(p, preset){
         ${p ? fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric"') : ''}
         ${fld('note', 'note', '', true)}</div>`
     : `<div class="formgrid">
-        ${fld('name', 'f_name', 'required', true)}
+        ${fld('name', 'f_name', 'required list="pf-names" autocomplete="off"', true)}
+        <datalist id="pf-names">${[...new Set(S.products.filter(x => EASY.includes(x.type)).map(x => x.name).filter(Boolean))].sort().map(n => `<option value="${esc(n)}">`).join('')}</datalist>
         ${fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric" required')}${fld('price', 'f_price', 'type="number" min="0" step="0.01" inputmode="decimal" required')}
         <div class="f" style="grid-column:1/-1"><span>${esc(t('f_code'))}</span><b class="num" style="font-size:18px">${esc(v.code || t('code_auto'))}</b></div></div>`;
   openOv(`<form id="pf" class="stack"><div class="row between"><h2>${esc(t(veh ? (p ? 'edit_vehicle' : 'new_vehicle') : (p ? 'edit_item' : 'new_item')))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
