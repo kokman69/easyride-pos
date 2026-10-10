@@ -247,7 +247,7 @@ function buildTabs(){
   paintMode();
   $('tabs').innerHTML = tabs.map(k => `<button data-tab="${k}" role="tab" aria-selected="${k===S.tab}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg><span>${esc(t('tab_' + k))}</span></button>`).join('');
   ['sale','stock','rent','customers','report','settings'].forEach(k => $('v-' + k).hidden = k !== S.tab);
-  $('p-add').hidden = !isAdmin();
+  $('p-add').hidden = $('p-add-veh').hidden = !isAdmin();
 }
 $('tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.tab = b.dataset.tab; closeSheet(); buildTabs(); render(); window.scrollTo(0, 0); };
 function typeChips(el, cur, onPick, counts){
@@ -671,21 +671,34 @@ $('p-list').onclick = async e => {
   });
   try { const nq = Math.max(0, (+p.qty || 0) + (act === 'inc' ? 1 : -1)); p.qty = nq; renderStock(); await q(sb.from('products').update({ qty:nq, updated_at:new Date().toISOString() }).eq('id', p.id)); } catch(err){ fail(err); reload('products'); }
 };
-$('p-add').onclick = () => openProduct(null);
+$('p-add').onclick = () => openProduct(null, { type:'accessory', qty:1 });
+$('p-add-veh').onclick = () => openProduct(null, { type:'moped', qty:1 });
+/* two simple forms: an item (name, quantity, price — the code is given automatically)
+   and a vehicle (type, model, VIN, colour, year, engine, price, photos) */
+const VEH_ADD = ['moped','emoped','escooter','ebike','bike','atv'];
 function openProduct(p, preset){
-  const v = p || { type:'moped', qty:1, photos:[], ...preset };
+  const v = p || { photos:[], ...preset }, veh = !EASY.includes(v.type || 'accessory');
   let photos = (v.photos || []).map(path => ({ path }));
-  const fld = (k, lab, extra = '') => `<label class="f">${esc(t(lab))}<input id="pf-${k}" value="${esc(v[k] ?? '')}" ${extra}></label>`;
-  openOv(`<form id="pf" class="stack"><div class="row between"><h2>${esc(t(p ? 'edit_item' : 'new_item'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
-    <div><div class="small muted" style="font-weight:600;margin-bottom:6px">${esc(t('photos'))}</div><div class="phgrid" id="pf-ph"></div></div>
-    <div class="formgrid"><label class="f" style="grid-column:1/-1">${esc(t('f_name'))}<input id="pf-name" required value="${esc(v.name || '')}" placeholder="Honda Dio / LS2 …"></label>
-      <label class="f">${esc(t('f_type'))}<select id="pf-type">${TYPE_KEYS.map(k => `<option value="${k}" ${v.type === k ? 'selected' : ''}>${esc(tType(k))}</option>`).join('')}</select></label>
-      ${fld('price', 'f_price', 'type="number" min="0" step="1" inputmode="decimal"')}${fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric"')}
-      ${fld('brand', 'f_brand')}${fld('year', 'f_year', 'inputmode="numeric"')}${fld('color', 'f_color')}${fld('engine', 'f_engine', 'placeholder="49 cc / 1200 W"')}${fld('code', 'f_code')}
-      <label class="f" style="grid-column:1/-1">${esc(t('note'))}<input id="pf-note" value="${esc(v.note || '')}"></label></div>
-    <div id="pf-err" class="err" hidden></div>
+  const fld = (k, lab, extra = '', full = false) => `<label class="f"${full ? ' style="grid-column:1/-1"' : ''}>${esc(t(lab))}<input id="pf-${k}" value="${esc(v[k] ?? '')}" ${extra}></label>`;
+  const body = veh
+    ? `<div><div class="small muted" style="font-weight:600;margin-bottom:6px">${esc(t('photos'))}</div><div class="phgrid" id="pf-ph"></div></div>
+      <div class="formgrid">
+        <label class="f">${esc(t('f_type'))}<select id="pf-type">${(VEH_ADD.includes(v.type) ? VEH_ADD : [v.type, ...VEH_ADD]).map(k => `<option value="${k}" ${v.type === k ? 'selected' : ''}>${esc(tType(k))}</option>`).join('')}</select></label>
+        ${fld('name', 'f_model', 'required placeholder="Honda Dio / Yadea GT25 …"')}
+        ${fld('code', 'f_vin', 'required autocapitalize="characters" spellcheck="false" placeholder="LR4R4UE03T6907005"', true)}
+        ${fld('color', 'f_color')}${fld('year', 'f_year', 'inputmode="numeric" maxlength="4"')}
+        ${fld('engine', 'f_engine', 'placeholder="49 cc / 1200 W"')}${fld('price', 'f_price', 'type="number" min="0" step="1" inputmode="decimal"')}
+        ${p ? fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric"') : ''}
+        ${fld('note', 'note', '', true)}</div>`
+    : `<div class="formgrid">
+        ${fld('name', 'f_name', 'required', true)}
+        ${fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric" required')}${fld('price', 'f_price', 'type="number" min="0" step="0.01" inputmode="decimal" required')}
+        <div class="f" style="grid-column:1/-1"><span>${esc(t('f_code'))}</span><b class="num" style="font-size:18px">${esc(v.code || t('code_auto'))}</b></div></div>`;
+  openOv(`<form id="pf" class="stack"><div class="row between"><h2>${esc(t(veh ? (p ? 'edit_vehicle' : 'new_vehicle') : (p ? 'edit_item' : 'new_item')))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    ${body}<div id="pf-err" class="err" hidden></div>
     <button class="btn primary big" type="submit" id="pf-save">${esc(t('save'))}</button></form>`);
   const drawPhotos = () => {
+    if (!$('pf-ph')) return;
     $('pf-ph').innerHTML = photos.map((ph, i) => `<div class="p"><img src="${esc(ph.preview || photoUrl(ph.path))}" alt=""><button type="button" data-rm="${i}" aria-label="${esc(t('remove_photo'))}">×</button></div>`).join('')
       + `<label class="add">${esc(t('add_photos'))}<input type="file" accept="image/*" multiple hidden id="pf-file"></label>`;
     $('pf-file').onchange = async e => {
@@ -695,21 +708,37 @@ function openProduct(p, preset){
     };
   };
   drawPhotos();
-  $('pf-ph').onclick = e => { const b = e.target.closest('[data-rm]'); if (b) { photos.splice(+b.dataset.rm, 1); drawPhotos(); } };
+  if ($('pf-ph')) $('pf-ph').onclick = e => { const b = e.target.closest('[data-rm]'); if (b) { photos.splice(+b.dataset.rm, 1); drawPhotos(); } };
   $('pf').onsubmit = async e => {
     e.preventDefault();
-    const g = k => $('pf-' + k).value.trim(), btn = $('pf-save'); btn.disabled = true;
+    const g = k => ($('pf-' + k)?.value ?? '').trim(), err = $('pf-err'); err.hidden = true;
+    let data;
+    if (veh) {
+      const vin = g('code').toUpperCase().replace(/\s+/g, '');
+      if (!vin) { err.textContent = t('vin_required'); err.hidden = false; $('pf-code').focus(); return; }
+      if (S.products.some(x => x.id !== p?.id && String(x.code || '').toUpperCase() === vin)) { err.textContent = t('vin_exists'); err.hidden = false; $('pf-code').focus(); return; }
+      data = { name:g('name'), type:g('type'), code:vin, color:g('color'), year:g('year'), engine:g('engine'), note:g('note'),
+        price:Math.max(0, +g('price') || 0), qty: p ? Math.max(0, Math.round(+g('qty') || 0)) : 1 };
+    } else {
+      data = { name:g('name'), price:Math.max(0, r2(g('price'))), qty:Math.max(0, Math.round(+g('qty') || 0)) };
+      if (!p) data.type = 'accessory';
+    }
+    const btn = $('pf-save'); btn.disabled = true;
     try {
-      if (photos.some(x => x.blob)) toast(t('uploading'));
-      const paths = [];
-      for (const ph of photos) paths.push(ph.path || await uploadBlob('products', `p/${uid()}.jpg`, ph.blob));
-      const data = { name:g('name'), type:g('type'), brand:g('brand'), year:g('year'), color:g('color'), engine:g('engine'), code:g('code'),
-        price:Math.max(0, +g('price') || 0), qty:Math.max(0, Math.round(+g('qty') || 0)), note:g('note'), photos:paths, updated_at:new Date().toISOString() };
-      if (p) await q(sb.from('products').update(data).eq('id', p.id)); else await q(sb.from('products').insert(data));
-      const removed = (v.photos || []).filter(x => !paths.includes(x) && isOwnPhoto(x));
-      if (removed.length) sb.storage.from('products').remove(removed).catch(() => {});
-      closeOv(); toast(t('saved')); await reload('products');
-    } catch(err){ fail(err); btn.disabled = false; }
+      if (veh) {
+        if (photos.some(x => x.blob)) toast(t('uploading'));
+        const paths = [];
+        for (const ph of photos) paths.push(ph.path || await uploadBlob('products', `p/${uid()}.jpg`, ph.blob));
+        data.photos = paths;
+        const removed = (v.photos || []).filter(x => !paths.includes(x) && isOwnPhoto(x));
+        if (removed.length) sb.storage.from('products').remove(removed).catch(() => {});
+      }
+      data.updated_at = new Date().toISOString();
+      let row;
+      if (p) row = await q(sb.from('products').update(data).eq('id', p.id).select().single());
+      else row = await q(sb.from('products').insert(data).select().single());
+      closeOv(); toast(!veh && row?.code ? `${t('saved')} · ${t('f_code')} ${row.code}` : t('saved')); await reload('products');
+    } catch(err2){ fail(err2); btn.disabled = false; }
   };
 }
 

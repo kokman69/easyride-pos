@@ -721,3 +721,36 @@ begin
   end if;
   return json_build_object('hours', v_h, 'daily', coalesce(v_daily, 0), 'fee', round(v_h * coalesce(v_daily, 0) * 0.10, 2));
 end $$;
+
+-- ---------- v10: items (small goods) get automatic running codes; Georgian item names → English ----------
+update public.products p set name = m.en, updated_at = now()
+  from (values ('ბორბლის საკეტი','Wheel lock'), ('ელექტრო პორტატული ნასოსი','Portable electric pump'),
+               ('ინსტრუმენტების ჩანთა','Tool bag'), ('მეტალის საკიდი M','Metal rack M'), ('მეტალის საკიდი S','Metal rack S'),
+               ('ნიღაბი','Face mask'), ('ტელწფონის წვიმისგან დამცავი','Phone rain cover'), ('ტელეფონის წვიმისგან დამცავი','Phone rain cover'),
+               ('ქოლგა','Umbrella'), ('ჩანთა','Bag'), ('წელის ჩანთა','Waist bag'), ('წვიმისგან დამცავი ქეისი','Waterproof case'),
+               ('ხელთათმანი','Gloves'), ('ტელეფონის დამჭერი','Phone holder'),
+               ('charging cable','Charging cable 3-in-1'), ('USB cabel','USB cable'), ('USB Cabel','USB cable')) as m(ka, en)
+ where p.name = m.ka and p.type in ('accessory','part','service','other');
+
+-- every item without a code gets the next number (00008, 00009, …), alphabetically
+with mx as (select coalesce(max(code::int), 0) n from public.products where code ~ '^[0-9]{1,9}$' and type in ('accessory','part','service','other')),
+     todo as (select id, row_number() over (order by name, price, created_at) rn from public.products
+               where coalesce(code, '') = '' and type in ('accessory','part','service','other'))
+update public.products p set code = lpad((mx.n + todo.rn)::text, 5, '0') from mx, todo where p.id = todo.id;
+
+create sequence if not exists public.item_code_seq;
+select setval('public.item_code_seq', greatest(1, (select coalesce(max(code::int), 0) from public.products
+               where code ~ '^[0-9]{1,9}$' and type in ('accessory','part','service','other'))));
+create or replace function public.item_code_trg() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.type in ('accessory','part','service','other') and coalesce(btrim(new.code), '') = '' then
+    loop
+      new.code := lpad(nextval('public.item_code_seq')::text, 5, '0');
+      exit when not exists (select 1 from public.products where code = new.code);
+    end loop;
+  end if;
+  return new;
+end $$;
+drop trigger if exists item_code on public.products;
+create trigger item_code before insert or update of code, type on public.products for each row execute function public.item_code_trg();
