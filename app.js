@@ -799,17 +799,20 @@ const stockLabel = p => [pName(p), p.color, p.code ? '№ ' + p.code : ''].filte
 function unitOptions(type){
   const busy = new Set(S.rentals.filter(r => r.status === 'active').flatMap(r => [r.unit_id && 'f:' + r.unit_id, r.product_id && 'p:' + r.product_id]).filter(Boolean));
   const byLabel = (a, b) => a.label.localeCompare(b.label, undefined, { numeric:true });
-  // only units with a frame number can be rented out — the number is shown in the list
-  const fleet = S.fleet.filter(f => f.type === type && String(f.number || '').trim()).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).sort(byLabel);
-  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && String(p.code || '').trim()).map(p => ({ key:'p:' + p.id, label:stockLabel(p) })).sort(byLabel);
+  // petrol mopeds only with a number (frame / plate); electric ones, scooters and bikes always — the number is shown in the list
+  const needNo = type === 'moped', qq = ($('r-unit-q')?.value || '').trim().toLowerCase().replace(/[\s-]/g, '');
+  const hit = l => !qq || l.toLowerCase().replace(/[\s-]/g, '').includes(qq);
+  const fleet = S.fleet.filter(f => f.type === type && (!needNo || String(f.number || '').trim())).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).filter(u => hit(u.label)).sort(byLabel);
+  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && (!needNo || String(p.code || '').trim())).map(p => ({ key:'p:' + p.id, label:stockLabel(p) })).filter(u => hit(u.label)).sort(byLabel);
   return { busy, groups:[['grp_fleet', fleet], ['grp_stock', stock]].filter(([, l]) => l.length) };
 }
 function fillUnits(){
   const x = curTariff(), cur = $('r-unit').value;
   const { busy, groups } = x ? unitOptions(x.type) : { busy:new Set(), groups:[] };
   $('r-unit').innerHTML = `<option value="">${esc(t('choose_unit'))}</option>` + groups.map(([g, list]) => `<optgroup label="${esc(t(g))}">${list.map(u => `<option value="${u.key}" ${busy.has(u.key) ? 'disabled' : ''} ${u.key === cur && !busy.has(u.key) ? 'selected' : ''}>${esc(u.label)}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`).join('')}</optgroup>`).join('');
-  $('r-unit-hint').hidden = groups.length > 0; $('r-unit-hint').textContent = t('unit_none_vin');
+  $('r-unit-hint').hidden = groups.length > 0; $('r-unit-hint').textContent = t(($('r-unit-q').value || '').trim() ? 'nothing_found' : x?.type === 'moped' ? 'unit_none_vin' : 'unit_none');
 }
+$('r-unit-q').oninput = () => { fillUnits(); const o = [...$('r-unit').options].filter(x => x.value && !x.disabled); if (o.length === 1) $('r-unit').value = o[0].value; };
 $('r-type').onchange = () => { $('r-rate').value = '0'; fillRates(true); fillUnits(); };
 $('r-rate').onchange = () => fillRates(true);
 $('r-end').oninput = () => { $('r-end').dataset.manual = '1'; };
@@ -971,7 +974,7 @@ $('r-save').onclick = async () => {
     try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).eq('id', saved.id)); }
     catch(e){ console.error(e); toast(t('sign_fail')); }
     await uploadRentalVideo(saved.id);
-    $('r-dep').value = 0; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
+    $('r-dep').value = 0; $('r-unit-q').value = ''; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
     await reload('rentals', 'customers');
     showReport('rental', rentalReportData(S.rentals.find(y => y.id === saved.id) || { ...saved, contract:true }));
   } catch(e){ fail(e); } finally { btn.disabled = false; }
