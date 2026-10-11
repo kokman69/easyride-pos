@@ -97,6 +97,8 @@ function arm(btn, fn){
   setTimeout(() => { if (btn.isConnected) { btn.classList.remove('armed'); btn.textContent = txt; } }, 3000);
 }
 const pName = p => p.name || '';
+const plateOf = p => String(p?.plate || '').trim();
+const normQ = x => String(x || '').toLowerCase().replace(/[\s-]/g, '');
 const pMeta = p => [tType(p.type), p.year, p.color, p.engine].filter(Boolean).join(' · ');
 const fleetLabel = f => [f.model, f.color, f.number ? '#' + f.number : ''].filter(Boolean).join(' · ');
 const sellerOpts = sel => (S.settings.sellers || []).map(s => `<option ${s===sel?'selected':''}>${esc(s)}</option>`).join('') || '<option value="">—</option>';
@@ -256,7 +258,7 @@ function typeChips(el, cur, onPick, counts){
   el.innerHTML = `<button class="chip" aria-pressed="${!cur}" data-t="">${esc(t('all'))}</button>` + keys.map(k => `<button class="chip" aria-pressed="${cur===k}" data-t="${k}">${esc(tType(k))} <span class="num">${counts[k]}</span></button>`).join('');
   el.onclick = e => { const b = e.target.closest('.chip'); if (b) onPick(b.dataset.t); };
 }
-const match = (p, qq) => !qq || [p.name, p.brand, p.color, p.code, p.year, tType(p.type), p.note].join(' ').toLowerCase().includes(qq.toLowerCase());
+const match = (p, qq) => { if (!qq) return true; const hay = [p.plate, p.name, p.brand, p.color, p.code, p.year, tType(p.type), p.note].join(' ').toLowerCase(); return hay.includes(qq.toLowerCase()) || (!!plateOf(p) && normQ(plateOf(p)).includes(normQ(qq))); };
 
 /* ================= images ================= */
 function compressImage(file, max = 1400, quality = .82){
@@ -292,7 +294,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('ov
 function showGallery(p){
   if (!p) return;
   const specs = Object.entries(p.specs || {}).filter(([, v]) => v);
-  openOv(`<div class="row between" style="flex-wrap:nowrap"><h2>${esc(pName(p))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+  openOv(`<div class="row between" style="flex-wrap:nowrap"><h2>${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
     <div class="row between"><span class="muted">${esc(pMeta(p))}</span><b class="num" style="font-size:20px">${+p.price ? money(p.price) : esc(t('negotiable'))}</b></div>
     ${p.photos?.length ? `<div class="gallery">${p.photos.map(ph => `<img src="${esc(photoUrl(ph))}" alt="${esc(pName(p))}" loading="lazy">`).join('')}</div>` : ''}
     ${specs.length ? `<dl class="specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
@@ -567,8 +569,8 @@ function renderSimplePick(){
   const types = VEH.filter(k => avail.some(p => p.type === k));
   if (!types.includes(S.spType)) S.spType = types[0] || '';
   $('sp-type').innerHTML = types.map(k => `<option value="${k}" ${k === S.spType ? 'selected' : ''}>${esc(tType(k))} (${avail.filter(p => p.type === k).length})</option>`).join('') || `<option value="">—</option>`;
-  const list = avail.filter(p => p.type === S.spType && match(p, qq)).sort((x, y) => pName(x).localeCompare(pName(y)));
-  $('sp-model').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([pName(p), p.color, p.year].filter(Boolean).join(' · '))} — ${+p.price ? money(p.price) : esc(t('negotiable'))}</option>`).join('');
+  const list = avail.filter(p => p.type === S.spType && match(p, qq)).sort((x, y) => (plateOf(x) ? 0 : 1) - (plateOf(y) ? 0 : 1) || plateOf(x).localeCompare(plateOf(y), undefined, { numeric:true }) || pName(x).localeCompare(pName(y)));
+  $('sp-model').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([plateOf(p), pName(p), p.color, p.year].filter(Boolean).join(' · '))} — ${+p.price ? money(p.price) : esc(t('negotiable'))}</option>`).join('');
 }
 $('sp-type').onchange = e => { S.spType = e.target.value; renderSale(); };
 ['sp-model','sp-item'].forEach(id => $(id).onchange = e => { const v = e.target.value; if (!v) return; addToCart(v); e.target.value = ''; });
@@ -606,7 +608,7 @@ function renderSale(){
       return `<div class="pcard ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
         <div class="ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : esc(t('cust_no_photo'))}</div>
         <button type="button" class="gal" data-gal="${p.id}" aria-label="${esc(t('details'))}">${esc(t('details'))}${p.photos?.length > 1 ? ' · ' + p.photos.length : ''}</button>
-        <div class="bd"><span class="nm">${esc(pName(p))}</span><span class="meta">${esc(pMeta(p))}</span>
+        <div class="bd"><span class="nm">${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</span><span class="meta">${esc(pMeta(p))}</span>
         ${p.note ? `<span class="meta" style="color:var(--warn)">${esc(p.note)}</span>` : ''}
         <span class="pr"><span class="num">${+p.price ? money(p.price) : esc(t('negotiable'))}</span>${tag}</span></div></div>`;
     }).join('');
@@ -627,7 +629,7 @@ function addToCart(id){
   const inCart = S.cart.filter(l => l.productId === p.id).reduce((a, l) => a + l.qty, 0);
   if (inCart >= (+p.qty || 0)) return;
   const ex = S.cart.find(l => l.productId === p.id);
-  if (ex) ex.qty++; else S.cart.push({ key:uid(), productId:p.id, name:pName(p), type:p.type, listPrice:+p.price || 0, unitPrice:+p.price || 0, qty:1, pct:0 });
+  if (ex) ex.qty++; else S.cart.push({ key:uid(), productId:p.id, name:[plateOf(p), pName(p)].filter(Boolean).join(' · '), type:p.type, listPrice:+p.price || 0, unitPrice:+p.price || 0, qty:1, pct:0 });
   renderSale(); toast(pName(p) + ' +1');
 }
 $('s-list').onclick = e => {
@@ -713,7 +715,7 @@ function renderStock(){
   if (!list.length) { $('p-list').innerHTML = `<div class="empty">${esc(t(S.products.length ? 'nothing_found' : (adm ? 'stock_empty_admin' : 'stock_empty')))}</div>`; return; }
   $('p-list').innerHTML = list.map(p => `<div class="item" data-id="${p.id}">
     <button class="ph" data-act="gal" aria-label="${esc(t('photos'))}">${p.photos?.[0] ? `<img src="${esc(photoUrl(p.photos[0]))}" alt="" loading="lazy">` : esc(t('cust_no_photo'))}</button>
-    <div style="min-width:0"><b>${esc(pName(p))}</b><div class="small muted">${esc(pMeta(p))}${p.code ? ' · ' + esc(p.code) : ''}</div>
+    <div style="min-width:0"><b>${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</b><div class="small muted">${esc(pMeta(p))}${p.code ? ' · ' + esc(p.code) : ''}</div>
       ${p.note ? `<div class="small" style="color:var(--warn)">${esc(p.note)}</div>` : ''}<div class="num" style="font-weight:700;margin-top:2px">${+p.price ? money(p.price) : esc(t('negotiable'))}</div></div>
     <div class="side">${adm ? `<span class="qtyctl"><button data-act="dec" aria-label="−">−</button><span class="num" style="min-width:24px;text-align:center">${+p.qty || 0}</span><button data-act="inc" aria-label="+">+</button></span>` : `<span class="tag ${+p.qty > 0 ? '' : 'out'}">${+p.qty || 0} ${esc(t('pcs'))}</span>`}
       ${adm ? `<span class="acts"><button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button><button class="btn ghost small danger" data-act="del">${esc(t('remove'))}</button></span>` : ''}</div></div>`).join('');
@@ -745,6 +747,7 @@ function openProduct(p, preset){
       <div class="formgrid">
         <label class="f">${esc(t('f_type'))}<select id="pf-type">${(VEH_ADD.includes(v.type) ? VEH_ADD : [v.type, ...VEH_ADD]).map(k => `<option value="${k}" ${v.type === k ? 'selected' : ''}>${esc(tType(k))}</option>`).join('')}</select></label>
         ${fld('name', 'f_model', 'required placeholder="Honda Dio / Yadea GT25 …"')}
+        ${fld('plate', 'f_plate', 'autocapitalize="characters" spellcheck="false" placeholder="BA2148"')}
         ${fld('code', 'f_vin', 'required autocapitalize="characters" spellcheck="false" placeholder="LR4R4UE03T6907005"', true)}
         ${fld('color', 'f_color')}${fld('year', 'f_year', 'inputmode="numeric" maxlength="4"')}
         ${fld('engine', 'f_engine', 'placeholder="49 cc / 1200 W"')}${fld('price', 'f_price', 'type="number" min="0" step="1" inputmode="decimal"')}
@@ -778,7 +781,9 @@ function openProduct(p, preset){
       const vin = g('code').toUpperCase().replace(/\s+/g, '');
       if (!vin) { err.textContent = t('vin_required'); err.hidden = false; $('pf-code').focus(); return; }
       if (S.products.some(x => x.id !== p?.id && String(x.code || '').toUpperCase() === vin)) { err.textContent = t('vin_exists'); err.hidden = false; $('pf-code').focus(); return; }
-      data = { name:g('name'), type:g('type'), code:vin, color:g('color'), year:g('year'), engine:g('engine'), note:g('note'),
+      const plate = g('plate').toUpperCase().replace(/[\s-]/g, '');
+      if (plate && S.products.some(x => x.id !== p?.id && normQ(plateOf(x)) === normQ(plate))) { err.textContent = t('plate_exists'); err.hidden = false; $('pf-plate').focus(); return; }
+      data = { name:g('name'), type:g('type'), code:vin, plate, color:g('color'), year:g('year'), engine:g('engine'), note:g('note'),
         price:Math.max(0, +g('price') || 0), qty: p ? Math.max(0, Math.round(+g('qty') || 0)) : 1 };
     } else {
       data = { name:g('name'), price:Math.max(0, r2(g('price'))), qty:Math.max(0, Math.round(+g('qty') || 0)) };
@@ -852,7 +857,7 @@ function fillRates(setPrice = true){
   if (setPrice) delete $('r-end').dataset.manual;
   setEnd(false);
 }
-const stockLabel = p => [pName(p), p.color, p.code ? '№ ' + p.code : ''].filter(Boolean).join(' · ');
+const stockLabel = p => [plateOf(p), pName(p), p.color, p.code ? '№ ' + p.code : ''].filter(Boolean).join(' · ');
 function unitOptions(type){
   const busy = new Set(S.rentals.filter(r => r.status === 'active').flatMap(r => [r.unit_id && 'f:' + r.unit_id, r.product_id && 'p:' + r.product_id]).filter(Boolean));
   const byLabel = (a, b) => a.label.localeCompare(b.label, undefined, { numeric:true });
@@ -860,17 +865,35 @@ function unitOptions(type){
   const needNo = type === 'moped', qq = ($('r-unit-q')?.value || '').trim().toLowerCase().replace(/[\s-]/g, '');
   const hit = l => !qq || l.toLowerCase().replace(/[\s-]/g, '').includes(qq);
   const fleet = S.fleet.filter(f => f.type === type && (!needNo || String(f.number || '').trim())).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).filter(u => hit(u.label)).sort(byLabel);
-  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && (!needNo || String(p.code || '').trim())).map(p => ({ key:'p:' + p.id, label:stockLabel(p) })).filter(u => hit(u.label)).sort(byLabel);
+  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && (!needNo || plateOf(p) || String(p.code || '').trim())).map(p => ({ key:'p:' + p.id, label:stockLabel(p), pl:plateOf(p) })).filter(u => hit(u.label)).sort((a, b) => (a.pl ? 0 : 1) - (b.pl ? 0 : 1) || byLabel(a, b));
   return { busy, groups:[['grp_fleet', fleet], ['grp_stock', stock]].filter(([, l]) => l.length) };
 }
 function fillUnits(){
   const x = curTariff(), cur = $('r-unit').value;
   const { busy, groups } = x ? unitOptions(x.type) : { busy:new Set(), groups:[] };
   $('r-unit').innerHTML = `<option value="">${esc(t('choose_unit'))}</option>` + groups.map(([g, list]) => `<optgroup label="${esc(t(g))}">${list.map(u => `<option value="${u.key}" ${busy.has(u.key) ? 'disabled' : ''} ${u.key === cur && !busy.has(u.key) ? 'selected' : ''}>${esc(u.label)}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`).join('')}</optgroup>`).join('');
+  drawExtraUnits();
   $('r-unit-hint').hidden = groups.length > 0; $('r-unit-hint').textContent = t(($('r-unit-q').value || '').trim() ? 'nothing_found' : x?.type === 'moped' ? 'unit_none_vin' : 'unit_none');
 }
 $('r-unit-q').oninput = () => { fillUnits(); const o = [...$('r-unit').options].filter(x => x.value && !x.disabled); if (o.length === 1) $('r-unit').value = o[0].value; };
-$('r-type').onchange = () => { $('r-rate').value = '0'; fillRates(true); fillUnits(); };
+/* several vehicles for one customer: extra unit rows of the same type (one rental record each, one signature) */
+let XU = [];
+function unitOptHtml(cur, taken){
+  const x = curTariff(); const { busy, groups } = x ? unitOptions(x.type) : { busy:new Set(), groups:[] };
+  return `<option value="">${esc(t('choose_unit'))}</option>` + groups.map(([g, list]) => `<optgroup label="${esc(t(g))}">${list.map(u => { const off = busy.has(u.key) || (taken.has(u.key) && u.key !== cur);
+    return `<option value="${u.key}" ${off ? 'disabled' : ''} ${u.key === cur ? 'selected' : ''}>${esc(u.label)}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`; }).join('')}</optgroup>`).join('');
+}
+function drawExtraUnits(){
+  const box = $('r-units-x'); if (!box) return;
+  box.innerHTML = XU.map((k, i) => `<div class="unitrow"><select data-xu="${i}" aria-label="unit ${i + 2}">${unitOptHtml(k, new Set([$('r-unit').value, ...XU.filter((_, j) => j !== i)]))}</select><button type="button" class="btn ghost addunit" data-xrm="${i}" aria-label="×">×</button></div>`).join('');
+  const n = 1 + XU.length, note = $('r-units-note');
+  note.hidden = n < 2; note.textContent = n < 2 ? '' : t('units_count').replace('{n}', n).replace('{sum}', money(r2((+$('r-price').value || 0) * n)));
+}
+$('r-unit-add').onclick = () => { XU.push(''); drawExtraUnits(); $('r-units-x').querySelector(`[data-xu="${XU.length - 1}"]`)?.focus(); };
+$('r-units-x').onchange = e => { const sel = e.target.closest('[data-xu]'); if (sel) { XU[+sel.dataset.xu] = sel.value; drawExtraUnits(); } };
+$('r-units-x').onclick = e => { const b = e.target.closest('[data-xrm]'); if (b) { XU.splice(+b.dataset.xrm, 1); drawExtraUnits(); } };
+$('r-unit').addEventListener('change', drawExtraUnits); $('r-price').addEventListener('input', drawExtraUnits);
+$('r-type').onchange = () => { XU = []; $('r-rate').value = '0'; fillRates(true); fillUnits(); };
 $('r-rate').onchange = () => fillRates(true);
 $('r-end').oninput = () => { $('r-end').dataset.manual = '1'; };
 
@@ -986,11 +1009,11 @@ async function recordVideo(){
     timer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); if ($('vr-t')) $('vr-t').textContent = `${Math.floor(s / 60)}:${pad(s % 60)}`; if (s >= 180) rec.stop(); }, 500);
   };
 }
-async function uploadRentalVideo(rentalId){
+async function uploadRentalVideo(rentalId, ids){
   if (!RV) return;
   const v = RV, path = `${rentalId}.${v.ext}`;
   toast(t('video_uploading'));
-  try { await uploadBlob('rental-videos', path, v.blob, v.blob.type || 'video/' + v.ext); await q(sb.from('rentals').update({ video:path }).eq('id', rentalId)); setVideo(null); }
+  try { await uploadBlob('rental-videos', path, v.blob, v.blob.type || 'video/' + v.ext); await q(sb.from('rentals').update({ video:path }).in('id', ids?.length ? ids : [rentalId])); setVideo(null); }
   catch(e){ console.error(e); toast(t('video_fail')); }
 }
 async function viewVideo(path){
@@ -1002,9 +1025,11 @@ async function viewVideo(path){
 
 $('r-save').onclick = async () => {
   const x = curTariff(); if (!x) return;
-  const uv = $('r-unit').value, kind = uv.slice(0, 2), uid_ = uv.slice(2);
-  const f = kind === 'f:' ? S.fleet.find(y => y.id === uid_) : null, sp = kind === 'p:' ? S.products.find(y => y.id === uid_) : null;
-  if (unitOptions(x.type).groups.length && !f && !sp) { toast(t('need_unit')); return; }
+  const unitOf = uv => { const kind = uv.slice(0, 2), id = uv.slice(2); const f = kind === 'f:' ? S.fleet.find(y => y.id === id) : null, sp = kind === 'p:' ? S.products.find(y => y.id === id) : null;
+    return { f, sp, label: f ? fleetLabel(f) : sp ? stockLabel(sp) : '' }; };
+  const units = [$('r-unit').value, ...XU].map(unitOf);
+  const { f, sp } = units[0];
+  if (unitOptions(x.type).groups.length && units.some(u => !u.f && !u.sp)) { toast(t('need_unit')); return; }
   const btn = $('r-save'); btn.disabled = true;
   try {
     let cust = null;
@@ -1018,21 +1043,24 @@ $('r-save').onclick = async () => {
     const rv = $('r-rate').value, r = x.rates?.[+rv], rate = rv === 'x' ? { other:true } : r ? { n:r.n, u:r.u, p:r.p } : null;
     setEnd(false);   // start counts from now unless someone typed the return time
     const start = new Date(), endV = $('r-end').value, end = endV ? new Date(endV) : null;
-    const unitLabel = f ? fleetLabel(f) : sp ? stockLabel(sp) : '';
+    const unitLabel = units[0].label;
     const row = { type:x.type, rate, price:r2($('r-price').value), deposit:r2($('r-dep').value), deposit_currency:$('r-dep-cur').value || 'GEL', deposit_payment:+$('r-dep').value ? $('r-dep-pay').value : '', unit_id:f?.id || null, product_id:sp?.id || null, unit_label:unitLabel,
       customer_id:cust.id, customer_name:cust.name, phone:cust.phone || '', seller:$('r-seller').value, payment:$('r-pay').value, created_by:S.user?.name || '',
       ends_at: end && !isNaN(end) ? end.toISOString() : null };
     const raw = { name:cust.name, doc:cust.doc_type || 'other', idnum:cust.id_number || '', dob:cust.birth_date || '', phone:cust.phone || '', nat:cust.nationality || '',
-      type:x.type, unit:unitLabel, rate, start:start.toISOString(), end:row.ends_at, price:row.price, pay:row.payment, deposit:row.deposit, dep_cur:row.deposit_currency, dep_pay:row.deposit_payment, daily:dailyRate(x.type) || 0, seller:row.seller };
+      type:x.type, unit:units.map(u => u.label).filter(Boolean).join(' + '), rate, start:start.toISOString(), end:row.ends_at, price:row.price, pay:row.payment, deposit:row.deposit, dep_cur:row.deposit_currency, dep_pay:row.deposit_payment, daily:dailyRate(x.type) || 0, seller:row.seller };
     btn.disabled = false;
     const sig = await askSignature(raw);
     if (!sig) return;
     btn.disabled = true;
     const signedAt = new Date().toISOString();
-    const saved = await q(sb.from('rentals').insert({ ...row, contract:{ v:1, lang:sig.lang, signed_at:signedAt, raw } }).select().single());
-    try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).eq('id', saved.id)); }
+    const rows = units.map((u, i) => ({ ...row, ...(i ? { deposit:0, deposit_payment:'' } : {}), unit_id:u.f?.id || null, product_id:u.sp?.id || null, unit_label:u.label, contract:{ v:1, lang:sig.lang, signed_at:signedAt, raw } }));
+    const savedAll = await q(sb.from('rentals').insert(rows).select());
+    const saved = savedAll[0];
+    try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).in('id', savedAll.map(y => y.id))); }
     catch(e){ console.error(e); toast(t('sign_fail')); }
-    await uploadRentalVideo(saved.id);
+    await uploadRentalVideo(saved.id, savedAll.map(y => y.id));
+    XU = []; drawExtraUnits();
     $('r-dep').value = 0; $('r-dep-cur').value = 'GEL'; paintPills($('r-dep-cur')); $('r-unit-q').value = ''; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
     await reload('rentals', 'customers');
     showReport('rental', rentalReportData(S.rentals.find(y => y.id === saved.id) || { ...saved, contract:true }));

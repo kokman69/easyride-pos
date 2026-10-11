@@ -799,3 +799,24 @@ begin
   if r.id is null then raise exception 'not_found'; end if;
   return r;
 end $$;
+-- v13: plate (state registration number) for vehicles + tech passports
+alter table public.products add column if not exists plate text not null default '';
+update public.products set plate = 'BA2124', engine = '49 cc · 4 kW' where left(id::text, 8) = '4bdd40eb';
+update public.products set plate = 'BA2134', engine = '49 cc · 4 kW', color = case when coalesce(color, '') = '' then 'წითელი' else color end where left(id::text, 8) = '8c6f0bbe';
+update public.products set plate = 'BA2136', engine = '49 cc · 4 kW', name = 'HONDA CREA SCOOPY' where left(id::text, 8) = '7339e9e7';
+update public.products set plate = 'BA2148', engine = '49 cc · 4 kW' where left(id::text, 8) = 'c585ad59';
+update public.products set plate = 'BA2169', engine = '49 cc · 6 kW' where left(id::text, 8) = 'abbc0b17';
+update public.products set plate = 'BA2172', engine = '49 cc · 4 kW', code = 'AF611525337' where left(id::text, 8) = '84d7cb5e';
+insert into public.products (name, type, color, engine, code, plate, price, qty, photos)
+  select 'SUZUKI ADDRESS V50', 'moped', 'ლურჯი', '49 cc · 4 kW', 'CA44A173262', 'BA2173', 0, 1, '{}'
+  where not exists (select 1 from public.products where plate = 'BA2173' or code = 'CA44A173262');
+-- tech passport = 2nd photo
+update public.products set photos = photos[1:1] || array['p/techpass-' || plate || '.jpg'] || coalesce(photos[2:], '{}')
+  where plate in ('BA2124','BA2134','BA2136','BA2148','BA2169','BA2172','BA2173')
+    and not ('p/techpass-' || plate || '.jpg') = any(photos);
+-- the active rental that used the temporary fleet row now points to the stock moped
+update public.rentals r set unit_id = null, product_id = p.id,
+  unit_label = concat_ws(' · ', p.plate, p.name, nullif(p.color, ''), '№ ' || p.code)
+  from public.products p
+  where left(p.id::text, 8) = 'c585ad59' and r.unit_id::text like '04581bb5%';
+delete from public.fleet where left(id::text, 8) in ('04581bb5', '8bc1b941');

@@ -375,3 +375,8 @@ html.simple .pills button{font-size:14px;padding:8px 13px}
 .sigview{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
 .sigview img{max-width:100%;height:auto}
 .noacc{border:2px dashed var(--accent);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
+
+.plate{display:inline-block;font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:800;font-size:.85em;letter-spacing:.04em;padding:0 5px;border:1.5px solid currentColor;border-radius:4px;line-height:1.35;vertical-align:1px}
+/* desktop: the sale panel stays put and scrolls on its own; the catalogue scrolls with the page */
+@media (min-width:761px){ html:not(.simple) .receipt{max-height:calc(100vh - 92px);max-height:calc(100dvh - 92px);overflow-y:auto;overscroll-behavior:contain} }
+.unitrow{display:flex;gap:6px;align-items:stretch}.unitrow select{flex:1;min-width:0}.addunit{border:1px solid var(--line);min-width:44px;font-size:20px;font-weight:700;padding:0 12px}
