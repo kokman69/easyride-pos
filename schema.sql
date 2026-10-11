@@ -820,3 +820,7 @@ update public.rentals r set unit_id = null, product_id = p.id,
   from public.products p
   where left(p.id::text, 8) = 'c585ad59' and r.unit_id::text like '04581bb5%';
 delete from public.fleet where left(id::text, 8) in ('04581bb5', '8bc1b941');
+
+-- ============ v14: signed agreements are also kept as PDF next to the signature ============
+update storage.buckets set allowed_mime_types = array['image/jpeg','image/png','image/webp','application/pdf']
+ where id = 'id-photos';

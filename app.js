@@ -353,10 +353,13 @@ function crop(c, top, h){
 }
 const goodMrz = r => r && r.checks.filter(Boolean).length >= 2 && (r.surname || r.birth);
 const CYR_NAT = ['RUS', 'BLR', 'KAZ', 'KGZ'];
+const MRZ_PARAMS = { tessedit_char_whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<', tessedit_pageseg_mode:'6' };
+const finishMrz = best => ({ ...best, nationality: window.MRZ.nationCode(best.nationality, window.ER_COUNTRIES || {}) || window.MRZ.nationCode(best.country, window.ER_COUNTRIES || {}) });
+/* a still photo (upload or "take a photo"): MRZ first, then the printed front side; resolves { out, bmp, rot } or null */
 async function readDocument(file){
   const bmp = await bitmapOf(file);
   const mw = await ocrWorker('mrz');
-  await mw.setParameters({ tessedit_char_whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<', tessedit_pageseg_mode:'6' });
+  await mw.setParameters(MRZ_PARAMS);
   // [rotation, crop top, crop height, width, black/white]: bottom part first (where the MRZ is), then the whole photo, then turned photos
   const tries = [[0, .5, .5, 1800, 1], [0, .5, .5, 1800, 0], [0, 0, 1, 2000, 1], [180, .5, .5, 1800, 1], [90, .5, .5, 1800, 1], [-90, .5, .5, 1800, 1], [0, .35, .65, 2600, 1], [90, 0, 1, 2000, 1], [-90, 0, 1, 2000, 1]];
   let best = null, bestRot = 0;
@@ -366,40 +369,104 @@ async function readDocument(file){
     if (r && (!best || r.score > best.score)) { best = r; bestRot = rot; }
     if (best?.valid && best.surname) break;
   }
-  const C = window.ER_COUNTRIES || {};
-  let out = null;
-  if (goodMrz(best)) {
-    out = { ...best };
-    out.nationality = window.MRZ.nationCode(best.nationality, C) || window.MRZ.nationCode(best.country, C);
-  } else {
-    // front side of an ID card (or a passport page without a readable MRZ): names, dates, personal number from the Latin text
-    const w = await ocrWorker('eng');
-    await w.setParameters({ tessedit_char_whitelist:'', tessedit_pageseg_mode:'3' });
-    let front = null;
-    for (const rot of [0, 90, -90, 180]) {
-      const { data } = await w.recognize(prep(bmp, rot, 1800, 0));
-      const f = window.MRZ.frontFromText(data.text);
-      if (f && (!front || (!front.surname && f.surname) || (!front.personal && f.personal))) { front = f; bestRot = rot; }
-      if (front && front.surname && front.personal) break;
-    }
-    if (!front) return null;
-    out = { ...front, kind: front.personal ? 'id' : '', nationality: front.personal ? 'GEO' : '', valid:false };
+  if (goodMrz(best)) return { out:finishMrz(best), bmp, rot:bestRot };
+  // front side of an ID card (or a passport page without a readable MRZ): names, dates, personal number from the Latin text
+  const w = await ocrWorker('eng');
+  await w.setParameters({ tessedit_char_whitelist:'', tessedit_pageseg_mode:'3' });
+  let front = null;
+  for (const rot of [0, 90, -90, 180]) {
+    const { data } = await w.recognize(prep(bmp, rot, 1800, 0));
+    const f = window.MRZ.frontFromText(data.text);
+    if (f && (!front || (!front.surname && f.surname) || (!front.personal && f.personal))) { front = f; bestRot = rot; }
+    if (front && front.surname && front.personal) break;
   }
-  // Georgian and Russian names stay in their own script: read the printed page in that language and keep only words matching the MRZ
-  const nat = out.nationality || window.MRZ.nationCode(out.country, C), script = nat === 'GEO' ? 'ka' : CYR_NAT.includes(nat) ? 'ru' : '';
+  if (!front) return null;
+  return { out:{ ...front, kind: front.personal ? 'id' : '', nationality: front.personal ? 'GEO' : '', valid:false }, bmp, rot:bestRot };
+}
+/* Georgian and Russian names stay in their own script: read the printed page in that language and keep only words matching the MRZ.
+   Runs after the form is already filled (Latin name first), so the scan itself is not slowed down. */
+async function localNameOf(bmp, rot, out){
+  const nat = out.nationality || window.MRZ.nationCode(out.country, window.ER_COUNTRIES || {}), script = nat === 'GEO' ? 'ka' : CYR_NAT.includes(nat) ? 'ru' : '';
   const latin = [out.given, out.surname].filter(Boolean).join(' ');
-  if (script && latin) {
-    try {
-      const w = await ocrWorker(script === 'ka' ? 'kat' : 'rus');
-      for (const [width, bin, top, h, psm] of [[2000, 0, 0, 1, '3'], [2400, 1, 0, .7, '3'], [2800, 0, 0, .6, '11'], [1600, 1, 0, 1, '11']]) {
-        await w.setParameters({ tessedit_pageseg_mode:psm });
-        const { data } = await w.recognize(crop(prep(bmp, bestRot, width, bin), top, h));
-        out.local = window.MRZ.localName(data.text, latin, script);
-        if (out.local) break;
+  if (!script || !latin || !bmp) return '';
+  try {
+    const w = await ocrWorker(script === 'ka' ? 'kat' : 'rus');
+    for (const [width, bin, top, h, psm] of [[2000, 0, 0, 1, '3'], [2400, 1, 0, .7, '3'], [2800, 0, 0, .6, '11']]) {
+      await w.setParameters({ tessedit_pageseg_mode:psm });
+      const { data } = await w.recognize(crop(prep(bmp, rot, width, bin), top, h));
+      const n = window.MRZ.localName(data.text, latin, script);
+      if (n) return n;
+    }
+  } catch(e){ console.error(e); }
+  return '';
+}
+
+/* live scan: the camera stays open and the machine-readable lines (the <<< rows at the bottom of a passport page /
+   back of an ID card) are read straight from the video; it closes the moment the check digits add up.
+   Resolves { out, blob } (read), { blob } (plain photo taken instead), null (closed) or undefined (no camera). */
+const canLive = () => !!(navigator.mediaDevices?.getUserMedia);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function frameBlob(v){
+  const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);
+  return new Promise(r => c.toBlob(r, 'image/jpeg', .9));
+}
+// the part of the video under the on-screen guide (with some room above and below), as a canvas
+function guideCrop(v, frame, extra){
+  const vw = v.videoWidth, vh = v.videoHeight, vr = v.getBoundingClientRect(), g = frame.getBoundingClientRect();
+  const k = Math.max(vr.width / vw, vr.height / vh), ox = (vw * k - vr.width) / 2, oy = (vh * k - vr.height) / 2;
+  let x = (g.left - vr.left + ox) / k, y = (g.top - vr.top + oy) / k, w = g.width / k, h = g.height / k;
+  y -= h * extra; h += 2 * h * extra; x = 0; w = vw;      // full width: the <<< lines may run past the visible edges
+  x = Math.max(0, x); y = Math.max(0, y); w = Math.min(vw - x, w); h = Math.min(vh - y, h);
+  const c = document.createElement('canvas'); c.width = Math.round(w); c.height = Math.round(h);
+  c.getContext('2d').drawImage(v, x, y, w, h, 0, 0, c.width, c.height);
+  return c;
+}
+async function liveScan(){
+  if (!canLive()) return undefined;
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1920 }, height:{ ideal:1080 } }, audio:false }); }
+  catch(e){ console.error(e); return undefined; }
+  return new Promise(resolve => {
+    let alive = true;
+    openOv(`<div class="row between" style="flex-wrap:nowrap"><h2>${esc(t('scan_live'))}</h2><button type="button" class="btn" id="ls-x">${esc(t('close'))}</button></div>
+      <div class="lscam"><video id="ls-v" autoplay muted playsinline></video><div class="lsframe" id="ls-f"><span>&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</span></div></div>
+      <div class="scanmsg" id="ls-st">${esc(t('scan_live_hint'))}</div>
+      <button type="button" class="btn" id="ls-shot">📷 ${esc(t('scan_live_photo'))}</button>`, 'scanov');
+    const ovClick = $('ov').onclick; $('ov').onclick = null;
+    const v = $('ls-v'); v.srcObject = stream;
+    v.onloadedmetadata = () => { if (v.videoWidth) v.parentElement.style.aspectRatio = `${v.videoWidth} / ${v.videoHeight}`; };
+    // tap to focus where the camera supports it
+    try { const tr = stream.getVideoTracks()[0], cap = tr.getCapabilities?.() || {}; if (cap.focusMode?.includes('continuous')) tr.applyConstraints({ advanced:[{ focusMode:'continuous' }] }).catch(() => {}); } catch(e){}
+    const done = val => { if (!alive) return; alive = false; stream.getTracks().forEach(x => x.stop()); $('ov').onclick = ovClick; closeOv(); resolve(val); };
+    $('ls-x').onclick = () => done(null);
+    $('ls-shot').onclick = async () => { if (v.readyState >= 2) done({ blob: await frameBlob(v) }); };
+    (async () => {
+      let w;
+      try { w = await ocrWorker('mrz'); await w.setParameters(MRZ_PARAMS); }
+      catch(e){ console.error(e); if ($('ls-st')) $('ls-st').textContent = t('scan_fail'); return; }
+      const seen = {}; let i = 0;
+      while (alive) {
+        if (v.readyState < 2 || !v.videoWidth) { await sleep(120); continue; }
+        const f = $('ls-f'); if (!f) break;
+        const pass = i++ % 3;          // black/white tight · grey · black/white with more room around the guide
+        const c = guideCrop(v, f, pass === 2 ? .45 : .2);
+        let r = null;
+        try { const { data } = await w.recognize(prep(c, 0, Math.min(1600, Math.max(1000, c.width)), pass !== 1)); r = window.MRZ.parse(data.text); }
+        catch(e){ console.error(e); await sleep(300); continue; }
+        if (!alive) break;
+        if (r && (r.surname || r.birth)) {
+          const key = [r.number, r.birth, r.surname, r.given].join('|'); seen[key] = (seen[key] || 0) + 1;
+          const st = $('ls-st'); if (st) { st.textContent = t('scan_live_almost'); st.className = 'scanmsg'; }
+          // all check digits right → done at once; otherwise the same reading twice with most checks right
+          if ((r.valid && r.surname && r.birth) || (goodMrz(r) && r.surname && seen[key] >= 2)) {
+            $('ls-f')?.classList.add('ok'); const blob = await frameBlob(v); await sleep(150);
+            done({ out:finishMrz(r), blob }); break;
+          }
+        }
       }
-    } catch(e){ console.error(e); }
-  }
-  return out;
+    })();
+  });
 }
 const titleCase = s => String(s || '').toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
 function ageOf(iso){
@@ -421,13 +488,16 @@ const PICK = {};
 const custMatch = (c, qq) => [c.name, c.phone, c.id_number].join(' ').toLowerCase().includes(qq.toLowerCase());
 const EMPTY_DRAFT = () => ({ name:'', phone:'', id_number:'', birth_date:'', nationality:'', doc_type:'', doc_expiry:'' });
 const freshPick = () => ({ mode:'search', id:null, draft:EMPTY_DRAFT(), patch:null, photo:null, preview:'', q:'', msg:null });
-const scanBtn = () => `<label class="btn small scan">${esc(t('scan_id'))}<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>`
+const scanBtn = () => (canLive() ? `<button type="button" class="btn small scan" data-act="live">${esc(t('scan_id'))}</button>` : `<label class="btn small scan">${esc(t('scan_id'))}<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>`)
   + `<label class="btn small scan up">${esc(t('upload_id'))}<input type="file" accept="image/*" data-act="scan" hidden></label>`;
 const photoBtns = (style = '') => `<span class="row" style="gap:6px;${style}"><label class="btn small">${esc(t('cust_photo_add'))}<input type="file" accept="image/*" capture="environment" data-act="scan" hidden></label>`
   + `<label class="btn small">${esc(t('upload_photo'))}<input type="file" accept="image/*" data-act="scan" hidden></label></span>`;
 const msgHtml = st => st.msg ? `<div class="scanmsg ${st.msg[1]}">${esc(t(st.msg[0]))}</div>` : '';
+let OCR_WARM = false;
 function mountPicker(boxId, force){
   const st = PICK[boxId] ??= freshPick();
+  // load the reader in the background so a scan starts at once
+  if (!OCR_WARM) { OCR_WARM = true; setTimeout(() => ocrWorker('mrz').catch(() => { OCR_WARM = false; }), 2500); }
   const box = $(boxId);
   // a background refresh must not wipe what someone is typing
   if (!force && box.dataset.mode === st.mode && box.contains(document.activeElement)) { if (st.mode === 'search') pickerResults(boxId); return; }
@@ -469,6 +539,7 @@ function mountPicker(boxId, force){
       else if (a === 'back' || a === 'change') { Object.assign(s, { mode:'search', id:null, photo:null, preview:'', patch:null, msg:null }); mountPicker(boxId, true); }
       else if (a === 'pick') { Object.assign(s, { mode:'selected', id:e.target.closest('[data-id]').dataset.id, photo:null, preview:'', patch:null, msg:null }); mountPicker(boxId, true); }
       else if (a === 'view') viewIdPhoto(S.customers.find(x => x.id === s.id)?.photo);
+      else if (a === 'live') liveInto(boxId);
     });
     box.addEventListener('input', e => {
       const s = PICK[boxId], k = e.target.dataset.k;
@@ -486,15 +557,27 @@ function mountPicker(boxId, force){
     });
   }
 }
-async function scanInto(boxId, file){
+async function liveInto(boxId){
+  const res = await liveScan();
+  if (res === undefined) { toast(t('scan_cam_denied')); return; }
+  if (!res?.blob) return;
+  const s = PICK[boxId];
+  try { s.photo = await compressImage(res.blob, 1600, .8); s.preview = URL.createObjectURL(s.photo); } catch(err){ console.error(err); }
+  await scanInto(boxId, res.blob, res.out ? { out:res.out } : null);
+}
+async function scanInto(boxId, file, pre){
   const s = PICK[boxId], wasSel = s.mode === 'selected';
   if (s.mode === 'search') s.mode = 'new';
-  s.msg = ['scanning', '']; mountPicker(boxId, true);
-  let r = null;
-  try { r = await readDocument(file); } catch(err){ console.error(err); }
+  let got = pre || null;
+  if (!got) {
+    s.msg = ['scanning', '']; mountPicker(boxId, true);
+    try { got = await readDocument(file); } catch(err){ console.error(err); }
+  }
+  const r = got?.out;
   if (!r) { s.msg = ['scan_fail', 'bad']; if (s.mode !== 'selected') s.mode = 'new'; mountPicker(boxId, true); return; }
+  const latinName = titleCase([r.given, r.surname].filter(Boolean).join(' '));
   const data = {
-    name: r.local || titleCase([r.given, r.surname].filter(Boolean).join(' ')),
+    name: r.local || latinName,
     id_number: r.personal || r.number || '', birth_date: r.birth || '', nationality: r.nationality || '',
     doc_type: r.kind || '', doc_expiry: r.expiry || ''
   };
@@ -510,6 +593,18 @@ async function scanInto(boxId, file){
   }
   mountPicker(boxId, true);
   if (s.mode === 'new') $(boxId).querySelector(s.draft.name ? '[data-k="phone"]' : '[data-k="name"]')?.focus();
+  // a Georgian / Russian holder: swap in the name in their own script once it has been read (unless it was edited meanwhile)
+  if (s.mode === 'new' && latinName && s.draft.name === latinName) {
+    const nat = r.nationality;
+    if (nat === 'GEO' || CYR_NAT.includes(nat)) {
+      const bmp = got.bmp || (file ? await bitmapOf(file).catch(() => null) : null);
+      const local = await localNameOf(bmp, got.rot || 0, r);
+      if (local && PICK[boxId] === s && s.mode === 'new' && s.draft.name === latinName) {
+        s.draft.name = local;
+        const inp = $(boxId).querySelector('[data-k="name"]'); if (inp) inp.value = local;
+      }
+    }
+  }
 }
 function pickerResults(boxId){
   const st = PICK[boxId], res = $(boxId).querySelector('.res'); if (!res) return;
@@ -835,7 +930,7 @@ function renderRent(){
   mountPicker('r-cust'); if (!$('r-video').childElementCount) renderVideo();
   const act = S.rentals.filter(r => r.status === 'active');
   const lateTag = r => { const l = lateCalc(r); return l.fee ? `<div class="small due late num">+${money(l.fee)} · ${l.hours} ${esc(t('hours_short'))}</div>` : ''; };
-  const cBtn = r => (r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '') + (r.signature ? `<button class="btn ghost small" data-act="sig">✍️ ${esc(t('signature'))}</button>` : '') + (r.video ? `<button class="btn ghost small" data-act="video">🎥 ${esc(t('video_short'))}</button>` : '');
+  const cBtn = r => (r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button><button class="btn ghost small" data-act="cshare">📤 ${esc(t('contract_share_btn'))}</button>` : '') + (r.signature ? `<button class="btn ghost small" data-act="sig">✍️ ${esc(t('signature'))}</button>` : '') + (r.video ? `<button class="btn ghost small" data-act="video">🎥 ${esc(t('video_short'))}</button>` : '');
   const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
       <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit, r.deposit_currency || 'GEL')}${r.deposit_payment ? ' · ' + esc(tPay(r.deposit_payment)) : ''}` : ''}</div>${cBtn(r)}${eBtn()}</div>
@@ -950,15 +1045,118 @@ function askSignature(raw){
     $('ct-ok').onclick = async () => { if (!pad.has()) { toast(tL('sign_need', lg)); return; } done({ lang:lg, blob: await pad.blob() }); };
   });
 }
-async function viewContract(r){
+async function viewContract(r, share){
   const c = r.contract; if (!c?.raw) { toast(t('contract_none')); return; }
-  let lg = c.lang || LANG, url = '';
-  openOv(`<div class="row between noprint" style="flex-wrap:wrap;gap:8px">${langChips(lg)}<div class="row"><button type="button" class="btn small" id="cv-print">${esc(t('print'))}</button><button type="button" class="btn small" data-close>${esc(t('close'))}</button></div></div><div id="cv-body"></div>`, 'wide');
+  let lg = c.lang || LANG, url = '', pdf = null, pdfLang = '';
+  openOv(`<div class="row between noprint" style="flex-wrap:wrap;gap:8px">${langChips(lg)}<button type="button" class="btn small" data-close>${esc(t('close'))}</button></div>
+    <div class="row noprint cvacts" style="gap:6px;flex-wrap:wrap"><button type="button" class="btn primary" id="cv-share">📤 ${esc(t('contract_share'))}</button>
+      <button type="button" class="btn" id="cv-copy">📋 ${esc(t('copy'))}</button><button type="button" class="btn" id="cv-dl">⬇️ PDF</button>
+      <button type="button" class="btn" id="cv-print">${esc(t('print'))}</button></div><div id="cv-body"></div>`, 'wide');
   const paint = () => { $('cv-body').innerHTML = window.ER_CONTRACT.html(lg, contractStrings({ ...c.raw, signed_at:c.signed_at }, lg), url); $('ov').querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === lg)); };
   paint();
-  $('ov').querySelector('.langpick').onclick = e => { const b = e.target.closest('[data-lang]'); if (b) { lg = b.dataset.lang; paint(); } };
+  // the PDF is made in the background as soon as the agreement opens, so "share" can hand it over straight away
+  const stored = () => r.signature && lg === c.lang ? q(sb.storage.from('id-photos').download(r.signature.replace(/\.png$/, '.pdf'))).catch(() => contractPdf(r, lg)) : contractPdf(r, lg);
+  const getPdf = () => { if (!pdf || pdfLang !== lg) { pdfLang = lg; pdf = stored(); pdf.catch(e => { console.error(e); pdf = null; }); } return pdf; };
+  getPdf();
+  $('ov').querySelector('.langpick').onclick = e => { const b = e.target.closest('[data-lang]'); if (b) { lg = b.dataset.lang; paint(); getPdf(); } };
   $('cv-print').onclick = () => window.print();
+  $('cv-copy').onclick = async () => {
+    const txt = contractText(r, lg);
+    try { await navigator.clipboard.writeText(txt); } catch(e){ const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+    toast(t('copied'));
+  };
+  const busy = (b, on) => { b.disabled = on; b.classList.toggle('busy', on); };
+  $('cv-dl').onclick = async e => { const b = e.currentTarget; busy(b, true); try { downloadBlob(await getPdf(), contractFileName(r)); } catch(err){ fail(err); } busy(b, false); };
+  $('cv-share').onclick = async e => { const b = e.currentTarget; busy(b, true); try { await sharePdf(await getPdf(), r, lg); } catch(err){ fail(err); } busy(b, false); };
+  if (share) $('cv-share').click();          // "share" straight from the list: the share sheet opens as soon as the PDF is ready
   if (r.signature) { try { url = (await q(sb.storage.from('id-photos').createSignedUrl(r.signature, 600))).signedUrl; if ($('cv-body')) paint(); } catch(e){ console.error(e); } }
+}
+
+/* ---------- the agreement as a PDF: contract text + the customer's signature, A4 pages ---------- */
+const PDF_LIBS = ['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'];
+let PDF_READY = null;
+const pdfLibs = () => PDF_READY ??= Promise.all([window.html2canvas || loadScript(PDF_LIBS[0]), window.jspdf || loadScript(PDF_LIBS[1])]).catch(e => { PDF_READY = null; throw e; });
+const blobUrlData = b => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(b); });
+const SIG_CACHE = {};
+async function signatureData(path){
+  if (!path) return '';
+  if (!SIG_CACHE[path]) SIG_CACHE[path] = q(sb.storage.from('id-photos').download(path)).then(blobUrlData).catch(e => { delete SIG_CACHE[path]; throw e; });
+  return SIG_CACHE[path];
+}
+const contractFileName = r => {
+  const raw = r.contract?.raw || {}, who = String(raw.name || r.customer_name || '').trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_');
+  return `Easyride_${tL('contract_view', 'en')}_${who || 'customer'}_${dayKey(new Date(r.contract?.signed_at || r.created_at))}.pdf`;
+};
+async function contractPdf(r, lg){
+  const c = r.contract;
+  const [sig] = await Promise.all([signatureData(r.signature).catch(e => { console.error(e); return ''; }), pdfLibs()]);
+  const PW = 794, PH = Math.round(PW * 297 / 210), M = 52;          // A4 at 96 dpi, top/bottom margin
+  const box = document.createElement('div'); box.className = 'pdfsheet';
+  box.innerHTML = window.ER_CONTRACT.html(lg, contractStrings({ ...c.raw, signed_at:c.signed_at }, lg), sig);
+  document.body.appendChild(box);
+  try {
+    await document.fonts?.ready;
+    await Promise.all([...box.querySelectorAll('img')].map(i => i.complete ? 0 : new Promise(res => { i.onload = i.onerror = res; })));
+    const top0 = box.getBoundingClientRect().top, total = box.scrollHeight;
+    // page breaks only between lines / paragraphs, never through a line of text
+    const cuts = [...new Set([...box.querySelectorAll('.contract > *:not(.agree), .contract section > h3, .contract li, .contract dt, .contract dd, .csign')]
+      .map(el => Math.ceil(el.getBoundingClientRect().bottom - top0)))].sort((a, b) => a - b);
+    const SC = 2, cv = await window.html2canvas(box, { scale:SC, backgroundColor:'#ffffff', useCORS:true, logging:false, windowWidth:PW });
+    const { jsPDF } = window.jspdf, doc = new jsPDF({ unit:'mm', format:'a4', compress:true });
+    const room = PH - 2 * M;
+    for (let y = 0, page = 0; y < total - 2; page++) {
+      let end = Math.min(total, y + room);
+      if (end < total) { const c2 = cuts.filter(v => v > y + room * .5 && v <= y + room).pop(); if (c2) end = c2; }
+      const pc = document.createElement('canvas'); pc.width = PW * SC; pc.height = PH * SC;
+      const x = pc.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, pc.width, pc.height);
+      x.drawImage(cv, 0, y * SC, PW * SC, (end - y) * SC, 0, M * SC, PW * SC, (end - y) * SC);
+      x.fillStyle = '#8a948e'; x.font = `${11 * SC}px sans-serif`; x.textAlign = 'right';
+      x.fillText(String(page + 1), (PW - 40) * SC, (PH - 24) * SC);
+      if (page) doc.addPage();
+      doc.addImage(pc.toDataURL('image/jpeg', .86), 'JPEG', 0, 0, 210, 297);
+      y = end;
+    }
+    return doc.output('blob');
+  } finally { box.remove(); }
+}
+function contractText(r, lg){
+  const d = document.createElement('div');
+  d.innerHTML = window.ER_CONTRACT.html(lg, contractStrings({ ...r.contract.raw, signed_at:r.contract.signed_at }, lg), '');
+  d.querySelectorAll('li').forEach(li => li.prepend('• '));
+  d.querySelectorAll('dt').forEach(dt => dt.append(': '));
+  d.style.cssText = 'position:fixed;left:-9999px;top:0;width:700px;white-space:normal'; document.body.appendChild(d);
+  const txt = d.innerText.replace(/\n{3,}/g, '\n\n').trim(); d.remove();
+  return txt + (r.signature ? `\n\n✍️ ${tL('signed_e', lg)}` : '');
+}
+function downloadBlob(blob, name){
+  const a = document.createElement('a'), u = URL.createObjectURL(blob);
+  a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 60000);
+}
+/* the phone's share sheet (WhatsApp, Telegram, Viber, mail …) with the PDF attached; where that is not possible the PDF is saved */
+async function sharePdf(blob, r, lg){
+  const file = new File([blob], contractFileName(r), { type:'application/pdf' });
+  if (navigator.canShare?.({ files:[file] })) {
+    try { await navigator.share({ files:[file], title:tL('contract_view', lg) }); return; }
+    catch(e){ if (e.name === 'AbortError') return; if (e.name === 'NotAllowedError') { toast(t('share_again')); return; } console.error(e); }
+  }
+  downloadBlob(blob, file.name); toast(t('pdf_saved'));
+}
+/* all agreements of one customer (newest first) */
+function customerContracts(c){
+  const list = S.rentals.filter(r => r.customer_id === c.id && r.contract?.raw);
+  // several vehicles rented at once share one agreement: show it once
+  const seen = new Set();
+  return list.filter(r => { const k = r.contract.signed_at || r.id; if (seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+}
+function openCustomerContracts(c){
+  const list = customerContracts(c);
+  if (!list.length) { toast(t('contract_none')); return; }
+  if (list.length === 1) { viewContract(list[0]); return; }
+  openOv(`<div class="row between"><h2>📄 ${esc(t('contract_view'))} · ${esc(c.name)}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="stack" id="cc-list">${list.map(r => `<button type="button" class="btn ccpick" data-id="${r.id}" style="justify-content:space-between;text-align:left"><span>${esc(r.contract.raw.unit || r.unit_label || '')}</span><span class="small muted num">${esc(fmtDT(r.contract.signed_at || r.created_at))}</span></button>`).join('')}</div>`);
+  $('cc-list').onclick = e => { const b = e.target.closest('[data-id]'); if (b) viewContract(S.rentals.find(r => r.id === b.dataset.id)); };
 }
 
 /* ---------- video of the vehicle at hand-over (proof of condition for the deposit) ---------- */
@@ -1057,7 +1255,10 @@ $('r-save').onclick = async () => {
     const rows = units.map((u, i) => ({ ...row, ...(i ? { deposit:0, deposit_payment:'' } : {}), unit_id:u.f?.id || null, product_id:u.sp?.id || null, unit_label:u.label, contract:{ v:1, lang:sig.lang, signed_at:signedAt, raw } }));
     const savedAll = await q(sb.from('rentals').insert(rows).select());
     const saved = savedAll[0];
-    try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).in('id', savedAll.map(y => y.id))); }
+    try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).in('id', savedAll.map(y => y.id)));
+      // the signed agreement is also kept as a PDF next to the signature (made in the background)
+      const signedRow = { ...saved, signature:path };
+      contractPdf(signedRow, sig.lang).then(pdf => uploadBlob('id-photos', path.replace(/\.png$/, '.pdf'), pdf, 'application/pdf')).catch(e => console.error('contract pdf', e)); }
     catch(e){ console.error(e); toast(t('sign_fail')); }
     await uploadRentalVideo(saved.id, savedAll.map(y => y.id));
     XU = []; drawExtraUnits();
@@ -1081,6 +1282,7 @@ $('r-active').onclick = async e => {
   const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
   const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; }
   const cb = e.target.closest('[data-act="contract"]'); if (cb) { viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); return; }
+  const sb2 = e.target.closest('[data-act="cshare"]'); if (sb2) { viewContract(S.rentals.find(r => r.id === sb2.closest('[data-id]').dataset.id), true); return; }
   const b = e.target.closest('[data-act="ret"]'); if (!b) return;
   const r = S.rentals.find(x => x.id === b.closest('[data-id]').dataset.id); if (r) openReturn(r);
 };
@@ -1114,7 +1316,7 @@ async function openReturn(r){
   };
 }
 $('r-history').onclick = e => { const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
-  const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; } const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
+  const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; } const sb2 = e.target.closest('[data-act="cshare"]'); if (sb2) { viewContract(S.rentals.find(r => r.id === sb2.closest('[data-id]').dataset.id), true); return; } const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
 
 /* admin: fix a rental — same PIN as for sales, checked again on the server */
 function openRentalEdit(id){ if (!isAdmin()) return; const r = S.rentals.find(x => x.id === id); if (r) askPin(pin => editRental(r, pin)); }
@@ -1213,10 +1415,11 @@ function renderCustomers(){
   const nS = {}, nR = {};
   S.sales.forEach(s => s.customer_id && (nS[s.customer_id] = (nS[s.customer_id] || 0) + 1));
   S.rentals.forEach(r => r.customer_id && r.status !== 'cancelled' && (nR[r.customer_id] = (nR[r.customer_id] || 0) + 1));
+  const hasContract = {}; S.rentals.forEach(r => { if (r.customer_id && r.contract?.raw) hasContract[r.customer_id] = 1; });
   $('k-list').innerHTML = !list.length ? `<div class="empty">${esc(t(S.customers.length ? 'nothing_found' : 'cust_none'))}</div>` : list.slice(0, 300).map(c => `<div class="citem" data-id="${c.id}">
     <div style="min-width:0"><b>${esc(c.name)}</b> ${ageChip(c)}<div class="small muted num">${esc(custLine(c) || '—')}</div>
       <div class="small muted">${esc(t('cust_purchases'))}: <span class="num">${nS[c.id] || 0}</span> · ${esc(t('cust_rentals'))}: <span class="num">${nR[c.id] || 0}</span></div></div>
-    <div class="acts row" style="justify-content:flex-end;gap:2px">${c.photo ? `<button class="btn ghost small" data-act="view">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}
+    <div class="acts row" style="justify-content:flex-end;gap:2px">${hasContract[c.id] ? `<button class="btn ghost small" data-act="contracts">📄 ${esc(t('contract_view'))}</button>` : ''}${c.photo ? `<button class="btn ghost small" data-act="view">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}
       <button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button>${isAdmin() ? `<button class="btn ghost small danger" data-act="del">${esc(t('remove'))}</button>` : ''}</div></div>`).join('');
 }
 $('k-q').oninput = renderCustomers;
@@ -1225,6 +1428,7 @@ $('k-list').onclick = e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const c = S.customers.find(x => x.id === b.closest('[data-id]').dataset.id); if (!c) return;
   if (b.dataset.act === 'view') viewIdPhoto(c.photo);
+  if (b.dataset.act === 'contracts') openCustomerContracts(c);
   if (b.dataset.act === 'edit') openCustomer(c);
   if (b.dataset.act === 'del' && isAdmin()) arm(b, async () => {
     try { await q(sb.from('customers').delete().eq('id', c.id)); if (c.photo) sb.storage.from('id-photos').remove([c.photo]).catch(() => {}); toast(t('deleted')); await reload('customers'); } catch(err){ fail(err); }

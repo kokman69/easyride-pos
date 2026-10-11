@@ -380,3 +380,16 @@ html.simple .pills button{font-size:14px;padding:8px 13px}
 /* desktop: the sale panel stays put and scrolls on its own; the catalogue scrolls with the page */
 @media (min-width:761px){ html:not(.simple) .receipt{max-height:calc(100vh - 92px);max-height:calc(100dvh - 92px);overflow-y:auto;overscroll-behavior:contain} }
 .unitrow{display:flex;gap:6px;align-items:stretch}.unitrow select{flex:1;min-width:0}.addunit{border:1px solid var(--line);min-width:44px;font-size:20px;font-weight:700;padding:0 12px}
+/* live document scan */
+.scanov{max-width:640px}
+.lscam{position:relative;width:100%;aspect-ratio:3/4;max-height:62vh;max-height:62dvh;margin:0 auto;border-radius:var(--r);overflow:hidden;background:#000}
+.lscam video{width:100%;height:100%;object-fit:cover;display:block}
+.lsframe{position:absolute;left:4%;right:4%;top:50%;height:26%;transform:translateY(-50%);border:3px solid var(--accent);border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;transition:border-color .15s}
+.lsframe span{color:rgba(255,255,255,.55);font:700 14px var(--f-num);letter-spacing:.12em;padding-bottom:6px}
+.lsframe.ok{border-color:#3ddc84}
+/* agreement rendered off-screen for the PDF: always light, A4 width */
+.pdfsheet{position:fixed;left:-12000px;top:0;width:794px;padding:0 56px;background:#fff;color:#16231d;
+  --bg:#f3f4ee;--surface:#fff;--ink:#16231d;--muted:#5d6b63;--line:#dde2d8;--accent:#f2c230}
+.pdfsheet .contract{font-size:13.5px;line-height:1.55}
+.pdfsheet .sigimg{border:1px solid #dde2d8}
+.cvacts .btn.busy{opacity:.6;cursor:progress}
