@@ -53,7 +53,7 @@ window.ER_REPORT = (function () {
     MDA: ['მოლდოვა', 'Moldova', 'Молдова', 'モルドバ'], ITA: ['იტალია', 'Italy', 'Италия', 'イタリア'], NLD: ['ნიდერლანდები', 'Netherlands', 'Нидерланды', 'オランダ']
   };
   const LI = { ka: 0, en: 1, ru: 2, ja: 3 };
-  const country = (code, lg) => { const c = String(code || '').toUpperCase(); return C[c] ? C[c][LI[lg]] : c; };
+  const country = (code, lg) => { const c = String(code || '').toUpperCase(); return C[c] ? C[c][LI[lg]] : (window.ER_COUNTRIES || {})[c] || c; };
   const line = (k, v) => v ? `* ${k}: ${v}` : '';
   const join = a => a.filter(Boolean).join('\n');
 
@@ -70,7 +70,7 @@ window.ER_REPORT = (function () {
   function rental(lg, r) {
     const w = W[lg];
     return join([r.today ? w.rentReq : w.rentOn(r.date), line(w.item, r.item(lg)), line(w.period, r.period(lg)), line(w.fee, r.fee), r.late ? line(w.late, `${r.late.hours} ${w.h} — +${r.late.fee} (${w.total}: ${r.late.total})`) : '', line(w.pay, r.payLabel(lg)),
-      line(w.dep, r.deposit), line(w.cust, r.cust), line(w.tel, r.tel), line(w.nat, country(r.nat, lg)),
+      line(w.dep, typeof r.deposit === 'function' ? r.deposit(lg) : r.deposit), line(w.cust, r.cust), line(w.tel, r.tel), line(w.nat, country(r.nat, lg)),
       r.docPhoto ? line(w.doc, w.docTaken) : '', r.signed ? line(w.agr, w.agrSigned) : '', r.video ? line(w.vid, w.vidTaken) : '',
       line(w.start, r.start), line(w.end, r.end), line(w.seller, r.seller)]);
   }

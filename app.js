@@ -46,7 +46,8 @@ function applyI18n(){
   document.querySelectorAll('[data-iph]').forEach(el => el.placeholder = t(el.dataset.iph));
   document.querySelectorAll('[data-i-title]').forEach(el => { el.title = t(el.dataset.iTitle); el.setAttribute('aria-label', el.title); });
   ['lang-g','lang-a'].forEach(id => $(id).innerHTML = LANGS.map(([k,n]) => `<option value="${k}" ${k===LANG?'selected':''}>${n}</option>`).join(''));
-  ['c-pay','r-pay'].forEach(id => { const v = $(id).value; $(id).innerHTML = PAYS.filter(p => id === 'c-pay' || p !== 'installment').map(p => `<option value="${p}" ${p===v?'selected':''}>${esc(tPay(p))}</option>`).join(''); });
+  ['c-pay','r-pay','r-dep-pay'].forEach(id => { const v = $(id).value; $(id).innerHTML = PAYS.filter(p => id === 'c-pay' || p !== 'installment').map(p => `<option value="${p}" ${p===v?'selected':''}>${esc(tPay(p))}</option>`).join(''); });
+  document.querySelectorAll('select.pillsel').forEach(paintPills);
 }
 function setLang(l){ LANG = l; ls.set('er-lang', l); applyI18n(); if (S.user) renderAll(); else renderGate(); }
 $('lang-g').onchange = e => setLang(e.target.value);
@@ -277,6 +278,14 @@ async function uploadBlob(bucket, path, blob, type = 'image/jpeg'){
   return path;
 }
 function openOv(html, cls = ''){ $('ov').innerHTML = `<div class="panel pad stack ${cls}">${html}</div>`; $('ov').hidden = false; document.body.style.overflow = 'hidden'; $('ov').querySelectorAll('[data-close]').forEach(b => b.onclick = closeOv); }
+$('r-dep-cur').addEventListener('change', () => { const sp = $('r-dep').closest('.f').querySelector('span[data-i="deposit"]'); if (sp) sp.textContent = t('deposit').replace('₾', CUR_SIGN[$('r-dep-cur').value] || '₾'); });
+/* small segmented buttons in place of a <select class="pillsel"> (the select stays as the value holder) */
+function paintPills(sel){
+  let box = sel.nextElementSibling;
+  if (!box || !box.classList.contains('pills')) { box = document.createElement('div'); box.className = 'pills' + (sel.classList.contains('cur') ? ' cur' : ''); box.setAttribute('role', 'radiogroup'); sel.after(box);
+    box.onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; sel.value = b.dataset.v; sel.dispatchEvent(new Event('change', { bubbles:true })); paintPills(sel); }; }
+  box.innerHTML = [...sel.options].map(o => `<button type="button" data-v="${esc(o.value)}" role="radio" aria-pressed="${o.value === sel.value}">${esc(o.textContent)}</button>`).join('');
+}
 function closeOv(){ $('ov').hidden = true; $('ov').innerHTML = ''; document.body.style.overflow = ''; }
 $('ov').onclick = e => { if (e.target === $('ov')) closeOv(); };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('ov').hidden) closeOv(); else closeSheet(); } });
@@ -297,26 +306,41 @@ async function viewIdPhoto(path){
 }
 
 /* ================= document scan (passport / ID) ================= */
-let ocrWorker = null;
+const OCR_W = {};
 const loadScript = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('load ' + src)); document.head.appendChild(s); });
-async function getOcr(){
-  if (ocrWorker) return ocrWorker;
-  if (!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
-  ocrWorker = await window.Tesseract.createWorker('eng', 1);
-  return ocrWorker;
+/* one OCR worker per language: "mrz" = model trained on passport / ID machine-readable zones (served with the site),
+   eng / rus / kat for the printed page */
+async function ocrWorker(lang){
+  if (!OCR_W[lang]) OCR_W[lang] = (async () => {
+    if (!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+    return window.Tesseract.createWorker(lang, 1, lang === 'mrz' ? { langPath:new URL('ocr', location.href).href, gzip:false } : {});
+  })().catch(e => { delete OCR_W[lang]; throw e; });
+  return OCR_W[lang];
 }
+const getOcr = () => ocrWorker('eng');
 async function bitmapOf(blob){
   if (window.createImageBitmap) { try { return await createImageBitmap(blob, { imageOrientation:'from-image' }); } catch(e){} }
   return new Promise((res, rej) => { const i = new Image(), u = URL.createObjectURL(blob); i.onload = () => { URL.revokeObjectURL(u); res(i); }; i.onerror = rej; i.src = u; });
 }
-// the photo turned by rot degrees and scaled to ~width px, greyed where the browser can
-function prep(bmp, rot, width){
-  const W = bmp.width, H = bmp.height, sw = rot ? H : W, sh = rot ? W : H, k = Math.min(width / sw, 3);
-  const c = document.createElement('canvas'), x = c.getContext('2d');
+// the photo turned by rot degrees and scaled to ~width px, in grey; bin = black/white (Otsu) for the MRZ
+function prep(bmp, rot, width, bin){
+  const W = bmp.width, H = bmp.height, side = rot === 90 || rot === -90, sw = side ? H : W, sh = side ? W : H, k = Math.min(width / sw, 3);
+  const c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently:true });
   c.width = Math.round(sw * k); c.height = Math.round(sh * k);
-  if ('filter' in x) x.filter = 'grayscale(1)';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
   x.translate(c.width / 2, c.height / 2); x.rotate(rot * Math.PI / 180);
   x.drawImage(bmp, -W * k / 2, -H * k / 2, W * k, H * k);
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  const img = x.getImageData(0, 0, c.width, c.height), d = img.data, hist = new Array(256).fill(0);
+  for (let i = 0; i < d.length; i += 4) { const g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0; d[i] = d[i + 1] = d[i + 2] = g; hist[g]++; }
+  if (bin) {
+    const n = d.length / 4; let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sb = 0, wb = 0, best = 0, th = 128;
+    for (let i = 0; i < 256; i++) { wb += hist[i]; if (!wb) continue; const wf = n - wb; if (!wf) break; sb += i * hist[i];
+      const mb = sb / wb, mf = (sum - sb) / wf, v = wb * wf * (mb - mf) ** 2; if (v > best) { best = v; th = i; } }
+    for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = d[i] > th ? 255 : 0;
+  }
+  x.putImageData(img, 0, 0);
   return c;
 }
 function crop(c, top, h){
@@ -326,31 +350,54 @@ function crop(c, top, h){
   return o;
 }
 const goodMrz = r => r && r.checks.filter(Boolean).length >= 2 && (r.surname || r.birth);
+const CYR_NAT = ['RUS', 'BLR', 'KAZ', 'KGZ'];
 async function readDocument(file){
-  const w = await getOcr(), bmp = await bitmapOf(file);
-  const MRZ_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
-  const tries = [[.5, .5, 2000, 0], [0, 1, 1700, 0], [0, 1, 1700, 90], [0, 1, 1700, -90]];
-  await w.setParameters({ tessedit_char_whitelist:MRZ_CHARS });
-  let best = null;
-  for (const [top, h, width, rot] of tries) {
-    const { data } = await w.recognize(crop(prep(bmp, rot, width), top, h));
+  const bmp = await bitmapOf(file);
+  const mw = await ocrWorker('mrz');
+  await mw.setParameters({ tessedit_char_whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<', tessedit_pageseg_mode:'6' });
+  // [rotation, crop top, crop height, width, black/white]: bottom part first (where the MRZ is), then the whole photo, then turned photos
+  const tries = [[0, .5, .5, 1800, 1], [0, .5, .5, 1800, 0], [0, 0, 1, 2000, 1], [180, .5, .5, 1800, 1], [90, .5, .5, 1800, 1], [-90, .5, .5, 1800, 1], [0, .35, .65, 2600, 1], [90, 0, 1, 2000, 1], [-90, 0, 1, 2000, 1]];
+  let best = null, bestRot = 0;
+  for (const [rot, top, h, width, bin] of tries) {
+    const { data } = await mw.recognize(crop(prep(bmp, rot, width, bin), top, h));
     const r = window.MRZ.parse(data.text);
-    if (r && (!best || r.score > best.score)) best = r;
-    if (goodMrz(best) && best.valid) break;
+    if (r && (!best || r.score > best.score)) { best = r; bestRot = rot; }
+    if (best?.valid && best.surname) break;
   }
-  if (goodMrz(best)) return best;
-  // front side of an ID card (or a passport page without a readable MRZ): names, dates, personal number from the Latin text
-  await w.setParameters({ tessedit_char_whitelist:'' });
-  let front = null;
-  for (const rot of [0, 90, -90]) {
-    const { data } = await w.recognize(prep(bmp, rot, 1700));
-    const f = window.MRZ.frontFromText(data.text);
-    if (f && (!front || (!front.surname && f.surname) || (!front.personal && f.personal))) front = f;
-    if (front && front.surname && front.personal) break;
+  const C = window.ER_COUNTRIES || {};
+  let out = null;
+  if (goodMrz(best)) {
+    out = { ...best };
+    out.nationality = window.MRZ.nationCode(best.nationality, C) || window.MRZ.nationCode(best.country, C);
+  } else {
+    // front side of an ID card (or a passport page without a readable MRZ): names, dates, personal number from the Latin text
+    const w = await ocrWorker('eng');
+    await w.setParameters({ tessedit_char_whitelist:'', tessedit_pageseg_mode:'3' });
+    let front = null;
+    for (const rot of [0, 90, -90, 180]) {
+      const { data } = await w.recognize(prep(bmp, rot, 1800, 0));
+      const f = window.MRZ.frontFromText(data.text);
+      if (f && (!front || (!front.surname && f.surname) || (!front.personal && f.personal))) { front = f; bestRot = rot; }
+      if (front && front.surname && front.personal) break;
+    }
+    if (!front) return null;
+    out = { ...front, kind: front.personal ? 'id' : '', nationality: front.personal ? 'GEO' : '', valid:false };
   }
-  if (!front) return null;
-  if (best?.nationality) front.nationality = best.nationality;
-  return { ...front, kind: front.personal ? 'id' : '', nationality: front.nationality || (front.personal ? 'GEO' : ''), valid:false };
+  // Georgian and Russian names stay in their own script: read the printed page in that language and keep only words matching the MRZ
+  const nat = out.nationality || window.MRZ.nationCode(out.country, C), script = nat === 'GEO' ? 'ka' : CYR_NAT.includes(nat) ? 'ru' : '';
+  const latin = [out.given, out.surname].filter(Boolean).join(' ');
+  if (script && latin) {
+    try {
+      const w = await ocrWorker(script === 'ka' ? 'kat' : 'rus');
+      for (const [width, bin, top, h, psm] of [[2000, 0, 0, 1, '3'], [2400, 1, 0, .7, '3'], [2800, 0, 0, .6, '11'], [1600, 1, 0, 1, '11']]) {
+        await w.setParameters({ tessedit_pageseg_mode:psm });
+        const { data } = await w.recognize(crop(prep(bmp, bestRot, width, bin), top, h));
+        out.local = window.MRZ.localName(data.text, latin, script);
+        if (out.local) break;
+      }
+    } catch(e){ console.error(e); }
+  }
+  return out;
 }
 const titleCase = s => String(s || '').toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
 function ageOf(iso){
@@ -445,7 +492,7 @@ async function scanInto(boxId, file){
   try { r = await readDocument(file); } catch(err){ console.error(err); }
   if (!r) { s.msg = ['scan_fail', 'bad']; if (s.mode !== 'selected') s.mode = 'new'; mountPicker(boxId, true); return; }
   const data = {
-    name: titleCase([r.given, r.surname].filter(Boolean).join(' ')),
+    name: r.local || titleCase([r.given, r.surname].filter(Boolean).join(' ')),
     id_number: r.personal || r.number || '', birth_date: r.birth || '', nationality: r.nationality || '',
     doc_type: r.kind || '', doc_expiry: r.expiry || ''
   };
@@ -489,7 +536,7 @@ async function resolveCustomer(boxId){
   }
   if (st.mode === 'new') {
     const d = Object.fromEntries(Object.entries(st.draft).map(([k, v]) => [k, String(v || '').trim()]));
-    d.nationality = d.nationality.toUpperCase();
+    d.nationality = window.MRZ?.nationCode(d.nationality, window.ER_COUNTRIES || {}) || d.nationality.toUpperCase();
     if (!d.name) { if (!d.phone && !d.id_number && !st.photo) return null; throw new Error('name'); }
     const row = await q(sb.from('customers').insert(nullDates({ ...d, created_by: S.user?.name || '' })).select().single());
     S.customers.unshift(row);
@@ -783,10 +830,10 @@ function renderRent(){
   mountPicker('r-cust'); if (!$('r-video').childElementCount) renderVideo();
   const act = S.rentals.filter(r => r.status === 'active');
   const lateTag = r => { const l = lateCalc(r); return l.fee ? `<div class="small due late num">+${money(l.fee)} · ${l.hours} ${esc(t('hours_short'))}</div>` : ''; };
-  const cBtn = r => (r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '') + (r.video ? `<button class="btn ghost small" data-act="video">🎥 ${esc(t('video_short'))}</button>` : '');
+  const cBtn = r => (r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button>` : '') + (r.signature ? `<button class="btn ghost small" data-act="sig">✍️ ${esc(t('signature'))}</button>` : '') + (r.video ? `<button class="btn ghost small" data-act="video">🎥 ${esc(t('video_short'))}</button>` : '');
   const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
-      <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit)}` : ''}</div>${cBtn(r)}${eBtn()}</div>
+      <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit, r.deposit_currency || 'GEL')}${r.deposit_payment ? ' · ' + esc(tPay(r.deposit_payment)) : ''}` : ''}</div>${cBtn(r)}${eBtn()}</div>
       <div style="text-align:right"><div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
     : `<div class="empty small">${esc(t('nothing_rented'))}</div>`;
   const done = S.rentals.filter(r => r.status === 'returned').slice(0, 50);
@@ -839,7 +886,7 @@ function contractStrings(raw, lg){
     vehicle: [tL('t_' + raw.type, lg), raw.unit].filter(Boolean).join(' · '),
     period: rateLabel(raw.rate, lg), start: fmtDT(raw.start), end: raw.end ? fmtDT(raw.end) : '',
     price: `${money(raw.price)}${raw.pay ? ' · ' + tL('pay_' + raw.pay, lg) : ''}`,
-    deposit: +raw.deposit ? money(raw.deposit) : '', pen, seller: raw.seller, signedAt: raw.signed_at ? fmtDT(raw.signed_at) : ''
+    deposit: +raw.deposit ? money(raw.deposit, raw.dep_cur || 'GEL') + (raw.dep_pay ? ' · ' + tL('pay_' + raw.dep_pay, lg) : '') : '', pen, seller: raw.seller, signedAt: raw.signed_at ? fmtDT(raw.signed_at) : ''
   };
 }
 const langChips = cur => `<div class="langpick noprint" role="group" aria-label="${esc(t('contract_lang'))}">${LANGS.map(([k, n]) => `<button type="button" class="chip" data-lang="${k}" aria-pressed="${k === cur}">${esc(n)}</button>`).join('')}</div>`;
@@ -972,11 +1019,11 @@ $('r-save').onclick = async () => {
     setEnd(false);   // start counts from now unless someone typed the return time
     const start = new Date(), endV = $('r-end').value, end = endV ? new Date(endV) : null;
     const unitLabel = f ? fleetLabel(f) : sp ? stockLabel(sp) : '';
-    const row = { type:x.type, rate, price:r2($('r-price').value), deposit:r2($('r-dep').value), unit_id:f?.id || null, product_id:sp?.id || null, unit_label:unitLabel,
+    const row = { type:x.type, rate, price:r2($('r-price').value), deposit:r2($('r-dep').value), deposit_currency:$('r-dep-cur').value || 'GEL', deposit_payment:+$('r-dep').value ? $('r-dep-pay').value : '', unit_id:f?.id || null, product_id:sp?.id || null, unit_label:unitLabel,
       customer_id:cust.id, customer_name:cust.name, phone:cust.phone || '', seller:$('r-seller').value, payment:$('r-pay').value, created_by:S.user?.name || '',
       ends_at: end && !isNaN(end) ? end.toISOString() : null };
     const raw = { name:cust.name, doc:cust.doc_type || 'other', idnum:cust.id_number || '', dob:cust.birth_date || '', phone:cust.phone || '', nat:cust.nationality || '',
-      type:x.type, unit:unitLabel, rate, start:start.toISOString(), end:row.ends_at, price:row.price, pay:row.payment, deposit:row.deposit, daily:dailyRate(x.type) || 0, seller:row.seller };
+      type:x.type, unit:unitLabel, rate, start:start.toISOString(), end:row.ends_at, price:row.price, pay:row.payment, deposit:row.deposit, dep_cur:row.deposit_currency, dep_pay:row.deposit_payment, daily:dailyRate(x.type) || 0, seller:row.seller };
     btn.disabled = false;
     const sig = await askSignature(raw);
     if (!sig) return;
@@ -986,11 +1033,20 @@ $('r-save').onclick = async () => {
     try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).eq('id', saved.id)); }
     catch(e){ console.error(e); toast(t('sign_fail')); }
     await uploadRentalVideo(saved.id);
-    $('r-dep').value = 0; $('r-unit-q').value = ''; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
+    $('r-dep').value = 0; $('r-dep-cur').value = 'GEL'; paintPills($('r-dep-cur')); $('r-unit-q').value = ''; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
     await reload('rentals', 'customers');
     showReport('rental', rentalReportData(S.rentals.find(y => y.id === saved.id) || { ...saved, contract:true }));
   } catch(e){ fail(e); } finally { btn.disabled = false; }
 };
+const sigClick = e => { const b = e.target.closest('[data-act="sig"]'); if (b) viewSignature(S.rentals.find(r => r.id === b.closest('[data-id]').dataset.id)); };
+$('r-active').addEventListener('click', sigClick); $('r-history').addEventListener('click', sigClick);
+async function viewSignature(r){
+  if (!r?.signature) return;
+  openOv(`<div class="row between"><h2>✍️ ${esc(t('signature'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="small muted">${esc(r.customer_name || '')} · ${r.contract?.signed_at ? fmtDT(r.contract.signed_at) : fmtTs(r.created_at)}</div><div id="sg-box" class="sigview muted">${esc(t('loading'))}</div>`);
+  try { const d = await q(sb.storage.from('id-photos').createSignedUrl(r.signature, 600)); const b = $('sg-box'); if (b) b.innerHTML = `<img src="${esc(d.signedUrl)}" alt="${esc(t('signature'))}">`; }
+  catch(e){ fail(e); }
+}
 $('r-active').addEventListener('click', e => { const vb = e.target.closest('[data-act="video"]'); if (vb) viewVideo(S.rentals.find(r => r.id === vb.closest('[data-id]').dataset.id)?.video); });
 $('r-history').addEventListener('click', e => { const vb = e.target.closest('[data-act="video"]'); if (vb) viewVideo(S.rentals.find(r => r.id === vb.closest('[data-id]').dataset.id)?.video); });
 $('r-active').onclick = async e => {
@@ -1047,7 +1103,9 @@ function editRental(r, pin){
       <label class="f">${esc(t('tariff'))}<span class="row" style="flex-wrap:nowrap;gap:6px"><input id="re-n" type="number" min="1" step="1" inputmode="numeric" class="num" style="width:80px" value="${+rt.n || 1}">
         <select id="re-u">${['m','h','d','w'].map(k => `<option value="${k}" ${k === u0 ? 'selected' : ''}>${esc(UNITS[k][li()])}</option>`).join('')}<option value="x" ${u0 === 'x' ? 'selected' : ''}>${esc(t('other_duration'))}</option></select></span></label>
       <label class="f">${esc(t('price'))}<input id="re-price" type="number" min="0" step="0.01" inputmode="decimal" value="${+r.price || 0}"></label>
-      <label class="f">${esc(t('deposit'))}<input id="re-dep" type="number" min="0" step="0.01" inputmode="decimal" value="${+r.deposit || 0}"></label>
+      <label class="f">${esc(t('deposit'))}<span class="row" style="flex-wrap:nowrap;gap:6px"><input id="re-dep" type="number" min="0" step="0.01" inputmode="decimal" value="${+r.deposit || 0}">
+        <select id="re-dep-cur" style="width:auto">${['GEL','USD','EUR'].map(c => `<option value="${c}" ${(r.deposit_currency || 'GEL') === c ? 'selected' : ''}>${CUR_SIGN[c]}</option>`).join('')}</select></span></label>
+      <label class="f">${esc(t('dep_payment'))}<select id="re-dep-pay"><option value=""></option>${['cash','card','transfer'].map(k => `<option value="${k}" ${r.deposit_payment === k ? 'selected' : ''}>${esc(tPay(k))}</option>`).join('')}</select></label>
       <label class="f">${esc(t('seller'))}<select id="re-seller"><option value=""></option>${opt(S.settings.sellers || [], r.seller || '')}</select></label>
       <label class="f">${esc(t('payment'))}<select id="re-pay"><option value=""></option>${opt(PAYS, r.payment || '', tPay)}</select></label>
       <label class="f">${esc(t('cust_name'))}<input id="re-cname" value="${esc(r.customer_name || '')}"></label>
@@ -1068,7 +1126,7 @@ function editRental(r, pin){
     const iso = v => { const d = v ? new Date(v) : null; return d && !isNaN(d) ? d.toISOString() : null; };
     const u = $('re-u').value, price = r2($('re-price').value), status = $('re-status').value;
     const patch = { created_at:start.toISOString(), day:dayKey(start), ends_at:iso($('re-end').value), type:$('re-type').value, unit_label:$('re-unit').value.trim(),
-      rate: u === 'x' ? { other:true } : { n:Math.max(1, +$('re-n').value || 1), u, p:price }, price, deposit:r2($('re-dep').value),
+      rate: u === 'x' ? { other:true } : { n:Math.max(1, +$('re-n').value || 1), u, p:price }, price, deposit:r2($('re-dep').value), deposit_currency:$('re-dep-cur').value, deposit_payment:$('re-dep-pay').value,
       seller:$('re-seller').value, payment:$('re-pay').value, customer_name:$('re-cname').value.trim(), phone:$('re-phone').value.trim(),
       late_fee:r2($('re-late').value), status, returned_at: status === 'returned' ? (iso($('re-ret').value) || r.returned_at || new Date().toISOString()) : null };
     const btn = $('re-save'); btn.disabled = true;
@@ -1092,7 +1150,7 @@ function rentalReportData(r){
   if (!r) return null;
   const c = S.customers.find(x => x.id === r.customer_id) || {}, raw = r.contract?.raw || {};
   return { item: lg => [tL('t_' + r.type, lg), r.unit_label].filter(Boolean).join(' · '), period: lg => rateLabel(r.rate, lg),
-    fee: repMoney('GEL')(r.price), payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? repMoney('GEL')(r.deposit) : '',
+    fee: repMoney('GEL')(r.price), payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? lg => repMoney(r.deposit_currency || 'GEL')(r.deposit) + (r.deposit_payment ? ' · ' + tL('pay_' + r.deposit_payment, lg) : '') : '',
     cust: r.customer_name || c.name || '', tel: r.phone || c.phone || '', nat: c.nationality || raw.nat || '',
     docPhoto: !!c.photo, signed: !!r.contract, video: !!r.video, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
 }
@@ -1163,7 +1221,7 @@ function openCustomer(c){
   $('kf').onsubmit = async e => {
     e.preventDefault();
     const d = nullDates({ name:$('kf-name').value.trim(), phone:$('kf-phone').value.trim(), id_number:$('kf-id').value.trim(),
-      birth_date:$('kf-birth').value, nationality:$('kf-nat').value.trim().toUpperCase(), doc_type:$('kf-doc').value, doc_expiry:$('kf-exp').value }); if (!d.name) return;
+      birth_date:$('kf-birth').value, nationality:(window.MRZ?.nationCode($('kf-nat').value, window.ER_COUNTRIES || {}) || $('kf-nat').value.trim().toUpperCase()), doc_type:$('kf-doc').value, doc_expiry:$('kf-exp').value }); if (!d.name) return;
     const btn = $('kf-save'); btn.disabled = true;
     try {
       let id = c?.id;
@@ -1323,7 +1381,20 @@ function renderStaffList(){
   $('st-staff').innerHTML = list.length ? list.map(x => `<button type="button" class="tariff staffrow ${x.active ? '' : 'off'}" data-email="${esc(x.email)}">
       <span class="row" style="gap:8px;flex-wrap:nowrap"><span class="role ${x.role === 'admin' ? 'admin' : ''}">${x.role === 'admin' ? STAR : PERSON}</span><b>${esc(x.name || t('shared_account'))}</b>${x.active ? '' : ` <span class="tag out">${esc(t('inactive'))}</span>`}</span>
       <span class="small muted">${esc(x.phone || '')} ›</span></button>`).join('') : `<div class="small muted">—</div>`;
+  // sellers that are in the sellers list but have no login yet: one password field each
+  const have = new Set(S.staff.map(x => String(x.name || '').toLowerCase()));
+  const missing = (S.settings.sellers || []).filter(n => n && !have.has(n.toLowerCase()));
+  $('st-noacc').innerHTML = missing.length ? `<div class="noacc"><div class="small" style="font-weight:600">${esc(t('no_login_yet'))}</div>
+    ${missing.map(n => `<div class="row" style="flex-wrap:nowrap;gap:6px" data-n="${esc(n)}"><b style="min-width:70px">${esc(n)}</b><input type="password" autocomplete="new-password" placeholder="${esc(t('password'))}" aria-label="${esc(t('password'))} ${esc(n)}"><button type="button" class="btn small primary" data-act="mk">${esc(t('create_login'))}</button></div>`).join('')}</div>` : '';
 }
+$('st-noacc').onclick = async e => {
+  const b = e.target.closest('[data-act="mk"]'); if (!b) return;
+  const row = b.closest('[data-n]'), pw = row.querySelector('input').value;
+  if (pw.length < 6) { toast(t('pw_short')); row.querySelector('input').focus(); return; }
+  b.disabled = true;
+  try { await q(sb.rpc('admin_create_staff', { p_name:row.dataset.n, p_role:'consultant', p_password:pw, p_phone:'' })); toast(t('staff_created') + ' · ' + row.dataset.n); await reload('staff', 'settings'); }
+  catch(err){ fail(err); b.disabled = false; }
+};
 $('who-btn').onclick = () => openMe();
 function openMe(){
   const u = S.user; if (!u) return;

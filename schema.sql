@@ -766,3 +766,36 @@ drop policy if exists rental_videos_admin_delete on storage.objects;
 create policy rental_videos_staff_read on storage.objects for select to authenticated using (bucket_id = 'rental-videos' and public.is_staff());
 create policy rental_videos_staff_insert on storage.objects for insert to authenticated with check (bucket_id = 'rental-videos' and public.is_staff());
 create policy rental_videos_admin_delete on storage.objects for delete to authenticated using (bucket_id = 'rental-videos' and public.is_admin());
+
+-- ---------- v12: deposit currency (₾ / $ / €) and how the deposit was paid ----------
+alter table public.rentals add column if not exists deposit_currency text not null default 'GEL';
+alter table public.rentals add column if not exists deposit_payment  text not null default '';
+create or replace function public.edit_rental(p_pin text, p_id uuid, p_patch jsonb) returns public.rentals
+language plpgsql security definer set search_path = public, extensions as $$
+declare r public.rentals;
+begin
+  if not public.check_admin_pin(p_pin) then raise exception 'bad_pin'; end if;
+  update public.rentals set
+    created_at       = coalesce((p_patch->>'created_at')::timestamptz, created_at),
+    day              = coalesce((p_patch->>'day')::date, day),
+    ends_at          = case when p_patch ? 'ends_at' then (p_patch->>'ends_at')::timestamptz else ends_at end,
+    type             = coalesce(p_patch->>'type', type),
+    unit_label       = coalesce(p_patch->>'unit_label', unit_label),
+    rate             = coalesce(p_patch->'rate', rate),
+    price            = coalesce((p_patch->>'price')::numeric, price),
+    deposit          = coalesce((p_patch->>'deposit')::numeric, deposit),
+    deposit_currency = coalesce(nullif(p_patch->>'deposit_currency', ''), deposit_currency),
+    deposit_payment  = coalesce(p_patch->>'deposit_payment', deposit_payment),
+    late_fee         = coalesce((p_patch->>'late_fee')::numeric, late_fee),
+    seller           = coalesce(p_patch->>'seller', seller),
+    payment          = coalesce(p_patch->>'payment', payment),
+    customer_name    = coalesce(p_patch->>'customer_name', customer_name),
+    phone            = coalesce(p_patch->>'phone', phone),
+    status           = coalesce(p_patch->>'status', status),
+    returned_at      = case when p_patch ? 'returned_at' then (p_patch->>'returned_at')::timestamptz else returned_at end,
+    cancelled_at     = case when p_patch->>'status' = 'cancelled' then coalesce(cancelled_at, now())
+                            when p_patch ? 'status' then null else cancelled_at end
+  where id = p_id returning * into r;
+  if r.id is null then raise exception 'not_found'; end if;
+  return r;
+end $$;

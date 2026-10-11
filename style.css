@@ -360,3 +360,18 @@ html.simple .receipt{display:flex!important;position:static!important;inset:auto
 /* rental: vehicle video */
 .vidbox video,.vrec{width:100%;max-height:60vh;border-radius:10px;background:#000;display:block}
 .scan.up{border-style:solid}
+
+/* small segmented choice buttons (payment method, deposit currency) */
+select.pillsel{display:none}
+.pills{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.pills button{font:600 12px var(--f-ui);padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;min-height:0}
+.pills button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}
+.depwrap{display:flex;gap:6px;align-items:center}
+.depwrap input{flex:1;min-width:0}
+.pills.cur{margin-top:0;flex-wrap:nowrap}
+.pills.cur button{padding:5px 9px;font-size:14px}
+.pills.cur button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+html.simple .pills button{font-size:14px;padding:8px 13px}
+.sigview{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+.sigview img{max-width:100%;height:auto}
+.noacc{border:2px dashed var(--accent);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}

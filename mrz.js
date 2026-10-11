@@ -26,11 +26,19 @@
     return { surname: fix(sur || ''), given: fix(giv) };
   };
   // fix a field so its check digit matches, trying OCR-confusion swaps when needed
+  const SWAP = { O:'0', '0':'O', Q:'0', D:'0', I:'1', '1':'I', L:'1', S:'5', '5':'S', B:'8', '8':'B', Z:'2', '2':'Z', G:'6', '6':'G' };
   function fixed(raw, chk, numeric) {
     let f = numeric ? num(raw) : raw, c = num(chk);
     if (check(f) === c) return { v: f, ok: true };
     const alt = numeric ? raw : num(raw);
     if (check(alt) === c) return { v: alt, ok: true };
+    if (!numeric) {          // document numbers mix letters and digits: try the usual O/0, I/1, S/5 … swaps
+      const pos = [...f].map((ch, i) => SWAP[ch] ? i : -1).filter(i => i >= 0).slice(0, 8);
+      for (let m = 1; m < (1 << pos.length); m++) {
+        const a = [...f]; pos.forEach((p, j) => { if (m & (1 << j)) a[p] = SWAP[a[p]]; });
+        const v = a.join(''); if (check(v) === c) return { v, ok: true };
+      }
+    }
     return { v: f, ok: false };
   }
 
@@ -116,5 +124,47 @@
     return { partial: !(surname || given), surname, given, personal, birth, expiry };
   }
 
-  root.MRZ = { parse, personalFromText, frontFromText, check };
+  /* names in the holder's own script: Georgian / Cyrillic words read from the printed page are kept only
+     when they transliterate back to the Latin name of the MRZ (so OCR noise can never become a name) */
+  const RU = { А:'A',Б:'B',В:'V',Г:'G',Д:'D',Е:'E',Ё:'E',Ж:'ZH',З:'Z',И:'I',Й:'I',К:'K',Л:'L',М:'M',Н:'N',О:'O',П:'P',Р:'R',С:'S',Т:'T',У:'U',Ф:'F',Х:'KH',Ц:'TS',Ч:'CH',Ш:'SH',Щ:'SHCH',Ъ:'IE',Ы:'Y',Ь:'',Э:'E',Ю:'IU',Я:'IA',І:'I',Ї:'I',Є:'IE',Ґ:'G',Ў:'U',Қ:'K',Ғ:'G',Ң:'N',Ү:'U',Ұ:'U',Һ:'H',Ә:'A',Ө:'O' };
+  const KA = { ა:'A',ბ:'B',გ:'G',დ:'D',ე:'E',ვ:'V',ზ:'Z',თ:'T',ი:'I',კ:'K',ლ:'L',მ:'M',ნ:'N',ო:'O',პ:'P',ჟ:'ZH',რ:'R',ს:'S',ტ:'T',უ:'U',ფ:'P',ქ:'K',ღ:'GH',ყ:'Q',შ:'SH',ჩ:'CH',ც:'TS',ძ:'DZ',წ:'TS',ჭ:'CH',ხ:'KH',ჯ:'J',ჰ:'H' };
+  // compare loosely: spellings differ between transliteration systems (Y/I, KH/H, IA/YA, J/DZH …)
+  const loose = s => String(s).toUpperCase().replace(/[^A-Z]/g, '').replace(/KH/g, 'H').replace(/(TS|TZ|C)/g, 'TS').replace(/[YJ]/g, 'I').replace(/IE/g, 'E').replace(/W/g, 'V').replace(/X/g, 'KS').replace(/(.)\1+/g, '$1');
+  const translit = w => [...String(w).toUpperCase()].map(ch => RU[ch] ?? KA[ch.toLowerCase()] ?? KA[ch] ?? (/[A-Z]/.test(ch) ? ch : '')).join('');
+  const lev = (a, b) => { const d = Array.from({ length:a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1)); return d[a.length][b.length]; };
+  // text: OCR output of the page in Georgian or Russian; latin: "GIVEN SURNAME" from the MRZ
+  function localName(text, latin, script) {
+    const re = script === 'ka' ? /[ა-ჰ]{2,}/g : /[А-ЯЁІЇЄҐЎҚҒҢҮҰҺӘӨа-яёіїєґўқғңүұһәө]{2,}/g;
+    const words = [...new Set(String(text || '').match(re) || [])];
+    const out = [];
+    for (const tok of String(latin || '').split(/\s+/).filter(Boolean)) {
+      const want = loose(tok); let best = null, bd = 99;
+      for (const w of words) { const d = lev(loose(translit(w)), want); if (d < bd) { bd = d; best = w; } }
+      if (!best || bd > Math.max(1, Math.floor(want.length / 5))) return '';     // every part must match, or keep Latin
+      out.push(best);
+    }
+    const cap = w => script === 'ka' ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    return out.map(cap).join(' ');
+  }
+  // nationality as an ISO 3166 alpha-3 code (OCR noise and full country names are mapped where possible)
+  function nationCode(v, countries) {
+    const raw = String(v || '').trim();
+    const mk = raw.replace(/[\u1C90-\u1CBA]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xBC0));   // Mtavruli capitals → ordinary letters
+    const KA_C = { 'საქართველო':'GEO', 'რუსეთი':'RUS', 'უკრაინა':'UKR', 'ბელარუსი':'BLR', 'ყაზახეთი':'KAZ', 'სომხეთი':'ARM', 'აზერბაიჯანი':'AZE', 'თურქეთი':'TUR', 'ისრაელი':'ISR', 'ინდოეთი':'IND' };
+    if (KA_C[mk]) return KA_C[mk];
+    const RU_C = { 'РОССИЯ':'RUS', 'РОССИЙСКАЯ ФЕДЕРАЦИЯ':'RUS', 'КАЗАХСТАН':'KAZ', 'БЕЛАРУСЬ':'BLR', 'УКРАИНА':'UKR', 'ГРУЗИЯ':'GEO' };
+    if (RU_C[raw.toUpperCase()]) return RU_C[raw.toUpperCase()];
+    const s = raw.toUpperCase().replace(/[^A-Z ]/g, '').trim();
+    if (!s) return '';
+    if (s === 'D') return 'DEU';
+    if (countries[s]) return s;
+    const byName = Object.entries(countries).find(([, n]) => n.toUpperCase() === s || n.toUpperCase().startsWith(s + ' ') || s.startsWith(n.toUpperCase()));
+    if (byName) return byName[0];
+    const ALIAS = { RUSSIA:'RUS', USA:'USA', 'UNITED STATES':'USA', AMERICA:'USA', UK:'GBR', ENGLAND:'GBR', BRITAIN:'GBR', 'GREAT BRITAIN':'GBR', KOREA:'KOR', 'SOUTH KOREA':'KOR', IRAN:'IRN', TURKEY:'TUR', TURKIYE:'TUR', MOLDOVA:'MDA', CZECHIA:'CZE', 'CZECH REPUBLIC':'CZE', VIETNAM:'VNM', SYRIA:'SYR', UAE:'ARE', EMIRATES:'ARE', HOLLAND:'NLD' };
+    if (ALIAS[s]) return ALIAS[s];
+    return '';
+  }
+
+  root.MRZ = { parse, personalFromText, frontFromText, check, localName, translit, nationCode };
 })(typeof window !== 'undefined' ? window : globalThis);
