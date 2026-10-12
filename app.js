@@ -57,11 +57,11 @@ $('lang-a').onchange = e => setLang(e.target.value);
 const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>';
 const darkMQ = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
-const curTheme = () => document.documentElement.dataset.theme || (darkMQ?.matches ? 'dark' : 'light');
+const curTheme = () => document.documentElement.dataset.theme || 'dark';   // dark unless light was picked
 function paintTheme(){
   const dark = curTheme() === 'dark';
   document.querySelectorAll('.theme-btn').forEach(b => b.innerHTML = dark ? SUN : MOON);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#18221c' : '#16231d');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111315' : '#f3f3f4');
 }
 document.querySelectorAll('.theme-btn').forEach(b => b.onclick = () => {
   const next = curTheme() === 'dark' ? 'light' : 'dark';
