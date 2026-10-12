@@ -597,3 +597,55 @@ th{font-weight:600;color:var(--muted)}
 :root[data-theme="light"] .receipt .line,:root[data-theme="light"] .tot{background:#f1f1f3}
 .gate .row.between{flex-wrap:nowrap;align-items:flex-start}
 .gate .brand{flex:1 1 auto;min-width:0}
+
+/* =====================================================================
+   v24 colours — Easy Ride orange instead of the pastels.
+   Light: white / light grey + orange · Dark: dark grey + orange
+   ===================================================================== */
+:root:not([data-theme="light"]){
+  --bg:#17181a; --surface:#202124; --card:#2b2c30; --field:#2b2c30; --line:#35373b; --ink:#ffffff; --muted:#a3a5aa;
+  --orange:#ff7a1a; --orange-text:#ff8f3d; --orange-soft:rgba(255,122,26,.15);
+  --pri:#ff7a1a; --pri-ink:#161616; --accent:#ff7a1a; --accent-ink:#161616; --pink:#ff7a1a}
+:root[data-theme="light"]{
+  --bg:#f3f3f4; --surface:#ffffff; --card:#ececee; --field:#ececee; --line:#e2e2e5; --ink:#161616; --muted:#6b6c72;
+  --orange:#ff7a1a; --orange-text:#d65f00; --orange-soft:#fff0e3;
+  --pri:#ff7a1a; --pri-ink:#161616; --accent:#ff7a1a; --accent-ink:#161616; --pink:#ff7a1a}
+:root{--p1:var(--orange-soft);--p2:var(--orange-soft);--p3:var(--orange-soft);--p4:var(--orange-soft);--p5:var(--orange);--p6:var(--orange-soft);--p7:var(--orange-soft);--p8:var(--orange-soft)}
+
+/* brand */
+.brand::before,:root[data-theme="light"] .brand::before{background-color:var(--orange)}
+.brand b,:root[data-theme="light"] .brand b{color:var(--orange-text);background:none}
+
+/* category tiles: orange tint, the chosen one solid orange */
+#s-types .chip:nth-child(n){--tile:var(--orange-soft);color:var(--ink)}
+#s-types .chip .num{color:var(--muted)}
+#s-types .chip::after{background:var(--orange)}
+#s-types .chip:hover{filter:none;box-shadow:inset 0 0 0 1.5px var(--orange)}
+#s-types .chip[aria-pressed="true"]{--tile:var(--orange);color:#161616;box-shadow:none}
+#s-types .chip[aria-pressed="true"] .num{color:rgba(22,22,22,.62)}
+#s-types .chip[aria-pressed="true"]::after{background:#161616}
+
+/* cards, rows, stats: orange edge */
+.pcard::before,.pcard:nth-child(n)::before,.erow::before{background:var(--orange)}
+.stats .stat:nth-child(n){box-shadow:inset 4px 0 0 var(--orange)}
+:root[data-theme="light"] .stats .stat:nth-child(n){box-shadow:inset 4px 0 0 var(--orange),0 1px 2px rgba(17,19,21,.06)}
+.pcard:hover,.erow:hover{box-shadow:0 0 0 1.5px var(--orange)}
+
+/* buttons and highlights */
+.btn.scan,:root[data-theme="light"] .btn.scan{border-color:var(--orange);color:var(--orange-text)}
+nav#tabs button[aria-selected="true"] svg{color:var(--orange)}
+nav#tabs button[aria-selected="true"]{box-shadow:inset 3px 0 0 var(--orange)}
+@media (max-width:760px){nav#tabs button[aria-selected="true"]{box-shadow:none;color:var(--orange-text)}}
+.chip[aria-pressed="true"],.seg .chip[aria-pressed="true"],.pills button[aria-pressed="true"]{color:#161616}
+.whobtn{background:var(--surface)}
+
+/* role badges: admin ★ solid orange, moderator shield (orange outline), seller grey */
+.role{background:var(--card);color:var(--ink);--role-ink:var(--card)}
+.role.admin{background:var(--orange);color:#161616}
+.role.mod{background:var(--orange-soft);color:var(--orange-text);box-shadow:inset 0 0 0 1.5px var(--orange);--role-ink:var(--surface)}
+.rolepick{grid-template-columns:repeat(auto-fit,minmax(0,1fr))}
+.rolepick .rp{padding:14px 6px;font-size:14px}
+.rolepick .rp svg{color:var(--muted)}
+.rolepick .rp.adm svg,.rolepick .rp.mod svg{color:var(--orange)}
+.rolepick .rp.mod svg{--role-ink:var(--card)}
+.rolepick .rp[aria-pressed="true"],.rolepick .rp.adm[aria-pressed="true"],.rolepick .rp.mod[aria-pressed="true"]{border-color:var(--orange);background:var(--orange-soft)}

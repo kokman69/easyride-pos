@@ -824,3 +824,88 @@ delete from public.fleet where left(id::text, 8) in ('04581bb5', '8bc1b941');
 -- ============ v14: signed agreements are also kept as PDF next to the signature ============
 update storage.buckets set allowed_mime_types = array['image/jpeg','image/png','image/webp','application/pdf']
  where id = 'id-photos';
+
+
+-- ============ v15: moderator — every admin right except managing staff accounts ============
+do $$ declare c text; begin
+  for c in select conname from pg_constraint where conrelid = 'public.staff'::regclass and contype = 'c' and pg_get_constraintdef(oid) ilike '%role%' loop
+    execute format('alter table public.staff drop constraint %I', c);
+  end loop;
+end $$;
+alter table public.staff add constraint staff_role_check check (role in ('admin','moderator','consultant'));
+-- is_admin() now means "admin or moderator" (all data rights); is_owner() = the admin only (staff accounts)
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.my_role() in ('admin','moderator'), false)
+$$;
+create or replace function public.is_owner() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.my_role() = 'admin', false)
+$$;
+revoke execute on function public.is_owner() from public, anon;
+grant execute on function public.is_owner() to authenticated;
+create or replace function public.admin_create_staff(p_name text, p_role text, p_password text, p_phone text default '') returns text
+language plpgsql security definer set search_path = public, extensions as $$
+declare v_id uuid := gen_random_uuid(); v_email text; v_inst uuid;
+begin
+  if not public.is_owner() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  p_name := btrim(coalesce(p_name, ''));
+  if p_name = '' then raise exception 'name_required'; end if;
+  if p_role not in ('admin','moderator','consultant') then raise exception 'bad_role'; end if;
+  if length(coalesce(p_password, '')) < 6 then raise exception 'password_too_short'; end if;
+  if exists (select 1 from public.staff where lower(name) = lower(p_name)) then raise exception 'name_taken'; end if;
+  v_email := 'u-' || substr(replace(v_id::text, '-', ''), 1, 12) || '@easyride.app';
+  select instance_id into v_inst from auth.users where instance_id is not null limit 1;
+  insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+      raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+      confirmation_token, recovery_token, email_change_token_new, email_change,
+      email_change_token_current, phone_change, phone_change_token, reauthentication_token)
+  values (coalesce(v_inst, '00000000-0000-0000-0000-000000000000'), v_id, 'authenticated', 'authenticated', v_email,
+      crypt(p_password, gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{}', now(), now(),
+      '', '', '', '', '', '', '', '');
+  insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+  values (v_id::text, v_id, jsonb_build_object('sub', v_id::text, 'email', v_email, 'email_verified', true, 'phone_verified', false),
+      'email', now(), now(), now());
+  insert into public.staff (email, role, user_id, name, phone) values (v_email, p_role, v_id, p_name, coalesce(p_phone, ''));
+  update public.settings set sellers = array_append(sellers, p_name) where id = 1 and not (p_name = any(sellers));
+  perform public.audit_write('staff_create', 'staff', v_email, jsonb_build_object('name', p_name, 'role', p_role));
+  return v_email;
+end $$;
+create or replace function public.admin_update_staff(p_email text, p_patch jsonb) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare s public.staff; v_name text; v_pw text := p_patch ->> 'password';
+begin
+  if not public.is_owner() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  select * into s from public.staff where email = lower(p_email);
+  if s.email is null then raise exception 'not_found'; end if;
+  if s.email = lower(coalesce(auth.jwt() ->> 'email', '')) and (p_patch ->> 'active' = 'false' or p_patch ->> 'role' in ('consultant','moderator')) then
+    raise exception 'not_self'; end if;
+  v_name := nullif(btrim(coalesce(p_patch ->> 'name', '')), '');
+  if v_name is not null and v_name is distinct from s.name then
+    if exists (select 1 from public.staff where lower(name) = lower(v_name) and email <> s.email) then raise exception 'name_taken'; end if;
+    perform public.rename_seller(s.name, v_name);
+    update public.settings set sellers = array_append(sellers, v_name) where id = 1 and not (v_name = any(sellers));
+  end if;
+  if v_pw is not null and v_pw <> '' then
+    if length(v_pw) < 6 then raise exception 'password_too_short'; end if;
+    update auth.users set encrypted_password = crypt(v_pw, gen_salt('bf')), updated_at = now() where lower(email) = s.email;
+  end if;
+  update public.staff set
+    name   = coalesce(v_name, name),
+    phone  = coalesce(p_patch ->> 'phone', phone),
+    role   = case when p_patch ->> 'role' in ('admin','moderator','consultant') then p_patch ->> 'role' else role end,
+    active = coalesce((p_patch ->> 'active')::boolean, active)
+  where email = s.email;
+  perform public.audit_write('staff_update', 'staff', s.email, (p_patch - 'password') || case when v_pw <> '' then '{"password":"***"}'::jsonb else '{}'::jsonb end || jsonb_build_object('who', coalesce(s.name, s.email)));
+end $$;
+create or replace function public.admin_set_password(p_role text, p_password text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  if not public.is_owner() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  if p_role not in ('admin','moderator','consultant') then raise exception 'bad_role'; end if;
+  if length(coalesce(p_password, '')) < 6 then raise exception 'password_too_short'; end if;
+  update auth.users
+     set encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')),
+         updated_at = now()
+   where lower(email) in (select email from public.staff where role = p_role);
+end $$;

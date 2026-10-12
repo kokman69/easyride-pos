@@ -61,7 +61,7 @@ const curTheme = () => document.documentElement.dataset.theme || 'dark';   // da
 function paintTheme(){
   const dark = curTheme() === 'dark';
   document.querySelectorAll('.theme-btn').forEach(b => b.innerHTML = dark ? SUN : MOON);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111315' : '#f3f3f4');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#17181a' : '#f3f3f4');
 }
 document.querySelectorAll('.theme-btn').forEach(b => b.onclick = () => {
   const next = curTheme() === 'dark' ? 'light' : 'dark';
@@ -73,7 +73,9 @@ paintTheme();
 /* ================= state ================= */
 const S = { products:[], sales:[], rentals:[], customers:[], fleet:[], staff:[], settings:{ sellers:[], tariffs:[] },
   user:null, cart:[], tab:'sale', sType:'', pType:'', period:'today', loaded:false };
-const isAdmin = () => S.user?.role === 'admin';
+/* admin = owner (everything); moderator = admin rights except managing staff accounts; consultant = seller */
+const isAdmin = () => S.user?.role === 'admin' || S.user?.role === 'moderator';
+const isOwner = () => S.user?.role === 'admin';
 
 function toast(x){ const el = $('toast'); el.textContent = x; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 2800); }
 function fail(e){
@@ -148,14 +150,20 @@ async function boot(){
 let LOGIN = null;
 const STAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.55 4.43 1.07 6.27L12 17.2l-5.62 2.9 1.07-6.27L2.9 9.4l6.3-.9z"/></svg>';
 const PERSON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
+const SHIELD = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5 4 5.6v5.9c0 5 3.4 9.1 8 10.5 4.6-1.4 8-5.5 8-10.5V5.6z"/><path d="m8.6 12.2 2.4 2.4 4.6-4.8" fill="none" stroke="var(--role-ink,#161616)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ROLES = ['admin', 'moderator', 'consultant'];
+const roleIcon = r => r === 'admin' ? STAR : r === 'moderator' ? SHIELD : PERSON;
+const roleCls = r => 'role' + (r === 'admin' ? ' admin' : r === 'moderator' ? ' mod' : '');
+const roleKey = r => r === 'admin' ? 'role_admin' : r === 'moderator' ? 'role_mod' : 'role_cons';
+const roleBadge = (r, style = '') => `<span class="${roleCls(r)}"${style ? ` style="${style}"` : ''} title="${esc(t(roleKey(r)))}">${roleIcon(r)}</span>`;
 async function renderGate(){
   if (!LOGIN) { try { LOGIN = await q(sb.rpc('login_list')) || []; } catch(e){ console.error(e); LOGIN = []; } }
   if (!LOGIN.length) return renderGateOld();
-  let role = ls.get('er-grole') === 'admin' ? 'admin' : 'consultant';
+  let role = ROLES.includes(ls.get('er-grole')) ? ls.get('er-grole') : 'consultant';
   const paint = () => {
     const list = LOGIN.filter(x => x.role === role), last = ls.get('er-gemail');
     $('gate-body').innerHTML = `<h2>${esc(t('login_title'))}</h2><form id="g-login" class="stack">
-      <div class="rolepick" role="radiogroup">${[['admin', STAR, 'role_admin'], ['consultant', PERSON, 'role_cons']].map(([k, ic, l]) => `<button type="button" class="rp ${k === 'admin' ? 'adm' : ''}" data-r="${k}" aria-pressed="${role === k}">${ic}<span>${esc(t(l))}</span></button>`).join('')}</div>
+      <div class="rolepick" role="radiogroup">${ROLES.filter(k => k !== 'moderator' || LOGIN.some(x => x.role === 'moderator')).map(k => `<button type="button" class="rp ${k === 'admin' ? 'adm' : k === 'moderator' ? 'mod' : ''}" data-r="${k}" aria-pressed="${role === k}">${roleIcon(k)}<span>${esc(t(roleKey(k)))}</span></button>`).join('')}</div>
       ${list.length ? '' : `<div class="small muted">${esc(t('no_accounts'))}</div>`}
       <label class="f">${esc(t('password'))}<input id="g-pw" type="password" autocomplete="current-password" required></label>
       <label class="row small muted"><input type="checkbox" id="g-rem" checked> ${esc(t('remember'))}</label>
@@ -212,7 +220,7 @@ async function afterLogin(){
   try { role = await q(sb.rpc('my_role')); } catch(e){ console.error(e); }
   if (!role) { await sb.auth.signOut(); renderGate(); $('g-err').textContent = t('no_access_account'); $('g-err').hidden = false; return; }
   let me = null; try { me = await q(sb.rpc('my_profile')); } catch(e){ console.error(e); }
-  S.user = { role: role === 'admin' ? 'admin' : 'consultant', email: me?.email || '', phone: me?.phone || '',
+  S.user = { role: ROLES.includes(role) ? role : 'consultant', email: me?.email || '', phone: me?.phone || '',
     name: me?.name || ls.get('er-name') || (S.settings.sellers || [])[0] || '' };
   $('gate').hidden = true; $('app').hidden = false;
   S.tab = 'sale'; renderAll();
@@ -1609,13 +1617,13 @@ $('st-log').onclick = () => openStaff(null);
 /* ================= profiles + activity log ================= */
 const staffName = x => x?.name || x?.email || '';
 function renderStaffList(){
-  const list = [...S.staff].sort((a, b) => (b.active - a.active) || (a.role === 'admin' ? -1 : 1) - (b.role === 'admin' ? -1 : 1) || staffName(a).localeCompare(staffName(b)));
+  const list = [...S.staff].sort((a, b) => (b.active - a.active) || ROLES.indexOf(a.role) - ROLES.indexOf(b.role) || staffName(a).localeCompare(staffName(b)));
   $('st-staff').innerHTML = list.length ? list.map(x => `<button type="button" class="tariff staffrow ${x.active ? '' : 'off'}" data-email="${esc(x.email)}">
-      <span class="row" style="gap:8px;flex-wrap:nowrap"><span class="role ${x.role === 'admin' ? 'admin' : ''}">${x.role === 'admin' ? STAR : PERSON}</span><b>${esc(x.name || t('shared_account'))}</b>${x.active ? '' : ` <span class="tag out">${esc(t('inactive'))}</span>`}</span>
+      <span class="row" style="gap:8px;flex-wrap:nowrap">${roleBadge(x.role)}<b>${esc(x.name || t('shared_account'))}</b>${x.active ? '' : ` <span class="tag out">${esc(t('inactive'))}</span>`}</span>
       <span class="small muted">${esc(x.phone || '')} ›</span></button>`).join('') : `<div class="small muted">—</div>`;
   // sellers that are in the sellers list but have no login yet: one password field each
   const have = new Set(S.staff.map(x => String(x.name || '').toLowerCase()));
-  const missing = (S.settings.sellers || []).filter(n => n && !have.has(n.toLowerCase()));
+  const missing = isOwner() ? (S.settings.sellers || []).filter(n => n && !have.has(n.toLowerCase())) : [];
   $('st-noacc').innerHTML = missing.length ? `<div class="noacc"><div class="small" style="font-weight:600">${esc(t('no_login_yet'))}</div>
     ${missing.map(n => `<div class="row" style="flex-wrap:nowrap;gap:6px" data-n="${esc(n)}"><b style="min-width:70px">${esc(n)}</b><input type="password" autocomplete="new-password" placeholder="${esc(t('password'))}" aria-label="${esc(t('password'))} ${esc(n)}"><button type="button" class="btn small primary" data-act="mk">${esc(t('create_login'))}</button></div>`).join('')}</div>` : '';
 }
@@ -1631,7 +1639,7 @@ $('who-btn').onclick = () => openMe();
 function openMe(){
   const u = S.user; if (!u) return;
   openOv(`<div class="row between"><h2>${esc(t('my_profile'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
-    <div class="row" style="gap:10px"><span class="role ${isAdmin() ? 'admin' : ''}">${isAdmin() ? STAR : PERSON}</span><span class="muted">${esc(t(isAdmin() ? 'role_admin' : 'role_cons'))}</span></div>
+    <div class="row" style="gap:10px">${roleBadge(u.role)}<span class="muted">${esc(t(roleKey(u.role)))}</span></div>
     <form id="me-f" class="stack"><div class="formgrid two">
       <label class="f">${esc(t('cust_name'))}<input id="me-name" value="${esc(u.name)}" required></label>
       <label class="f">${esc(t('cust_phone'))}<input id="me-phone" type="tel" value="${esc(u.phone || '')}"></label></div>
@@ -1664,17 +1672,18 @@ async function openStaff(email){
   const mine = arr => arr.filter(r => !x || (r.seller || '') === nm);
   const sl = mine(S.sales), rl = mine(S.rentals.filter(r => r.status !== 'cancelled'));
   const st = (arr, from, sum) => { const f = arr.filter(r => r.day >= from && r.day <= b); return `${f.length} · ${money(f.reduce((s, r) => s + sum(r), 0))}`; };
-  openOv(`<div class="row between"><h2>${x ? `<span class="role ${x.role === 'admin' ? 'admin' : ''}" style="vertical-align:-4px">${x.role === 'admin' ? STAR : PERSON}</span> ${esc(x.name || t('shared_account'))}` : esc(t('all_activity'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
-    ${x ? `<form id="sx" class="stack"><div class="formgrid two">
+  openOv(`<div class="row between"><h2>${x ? `${roleBadge(x.role, 'vertical-align:-4px')} ${esc(x.name || t('shared_account'))}` : esc(t('all_activity'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    ${x && !isOwner() ? `<div class="small muted">${esc(t(roleKey(x.role)))}${x.phone ? ' · ' + esc(x.phone) : ''}</div>` : ''}
+    ${x && isOwner() ? `<form id="sx" class="stack"><div class="formgrid two">
       <label class="f">${esc(t('cust_name'))}<input id="sx-name" value="${esc(x.name || '')}"></label>
       <label class="f">${esc(t('cust_phone'))}<input id="sx-phone" type="tel" value="${esc(x.phone || '')}"></label>
-      <label class="f">${esc(t('role'))}<select id="sx-role" ${me ? 'disabled' : ''}><option value="consultant">${esc(t('role_cons'))}</option><option value="admin" ${x.role === 'admin' ? 'selected' : ''}>${esc(t('role_admin'))}</option></select></label>
+      <label class="f">${esc(t('role'))}<select id="sx-role" ${me ? 'disabled' : ''}>${['consultant', 'moderator', 'admin'].map(r => `<option value="${r}" ${x.role === r ? 'selected' : ''}>${esc(t(roleKey(r)))}</option>`).join('')}</select></label>
       <label class="f">${esc(t('pw_new'))}<input id="sx-pw" type="password" autocomplete="new-password" placeholder="${esc(t('pw_keep'))}"></label></div>
       <label class="row small"><input type="checkbox" id="sx-active" ${x.active ? 'checked' : ''} ${me ? 'disabled' : ''}> ${esc(t('account_active'))}</label>
       <button class="btn primary" id="sx-save">${esc(t('save'))}</button></form>` : ''}
     ${!x || x.name ? `<div class="stats small3">${[['sale_today', st(sl, today, r => +r.total || 0)], ['p_month30', st(sl, a, r => +r.total || 0)], ['rent_today', st(rl, today, rentSum)], ['rent_month30', st(rl, a, rentSum)]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('')}</div>` : ''}
     <h3 style="margin:6px 0 0">${esc(t('activity'))}</h3><div id="sx-log" class="actlog"><div class="small muted">${esc(t('loading'))}</div></div>`, 'wide');
-  if (x) $('sx').onsubmit = async e => {
+  if (x && $('sx')) $('sx').onsubmit = async e => {
     e.preventDefault(); const pw = $('sx-pw').value; if (pw && pw.length < 6) { toast(t('pw_short')); return; }
     const patch = { name:$('sx-name').value.trim(), phone:$('sx-phone').value.trim() };
     if (!me) Object.assign(patch, { role:$('sx-role').value, active:$('sx-active').checked });
@@ -1704,7 +1713,7 @@ function logVal(k, v){
   if (['price','total','deposit','late_fee','extra_discount'].includes(k)) return money(v);
   if (k === 'status') return t(v === 'active' ? 'st_active' : v === 'returned' ? 'returned_btn' : v === 'cancelled' ? 'st_cancelled' : v);
   if (k === 'payment') return tPay(v); if (k === 'type') return tType(v);
-  if (k === 'role') return t(v === 'admin' ? 'role_admin' : 'role_cons');
+  if (k === 'role') return t(roleKey(v));
   if (k === 'active') return t(v ? 'yes' : 'no');
   if (Array.isArray(v)) return v.every(i => typeof i !== 'object') ? v.join(', ') : '…';
   if (typeof v === 'object') return '…';
@@ -1749,12 +1758,12 @@ function render(){ if (!S.user) return; ({ sale:renderSale, stock:renderStock, r
 function renderAll(){
   applyI18n(); buildTabs();
   $('who-name').textContent = S.user?.name || '';
-  const rl = S.user ? t(isAdmin() ? 'role_admin' : 'role_cons') : '';
-  $('who-role').innerHTML = !S.user ? '' : isAdmin()
-    ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.55 4.43 1.07 6.27L12 17.2l-5.62 2.9 1.07-6.27L2.9 9.4l6.3-.9z"/></svg>'
-    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
+  const rl = S.user ? t(roleKey(S.user.role)) : '';
+  $('who-role').innerHTML = !S.user ? '' : roleIcon(S.user.role);
   $('who-role').title = rl; $('who-role').setAttribute('aria-label', rl); $('who-role').setAttribute('role', 'img');
-  $('who-role').className = 'role' + (isAdmin() ? ' admin' : '');
+  $('who-role').className = S.user ? roleCls(S.user.role) : 'role';
+  // creating / editing staff accounts stays with the owner (admin)
+  const sf = $('sf-add')?.closest('.panel'); if (sf) sf.querySelectorAll('#sf-add, .formgrid').forEach(el => el.hidden = !isOwner());
   ['c-cust','r-cust'].forEach(id => mountPicker(id));
   render();
 }
