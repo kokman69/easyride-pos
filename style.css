@@ -649,3 +649,33 @@ nav#tabs button[aria-selected="true"]{box-shadow:inset 3px 0 0 var(--orange)}
 .rolepick .rp.adm svg,.rolepick .rp.mod svg{color:var(--orange)}
 .rolepick .rp.mod svg{--role-ink:var(--card)}
 .rolepick .rp[aria-pressed="true"],.rolepick .rp.adm[aria-pressed="true"],.rolepick .rp.mod[aria-pressed="true"]{border-color:var(--orange);background:var(--orange-soft)}
+
+/* =====================================================================
+   v25 — Easy Ride yellow (#FFD200, as on easyride.ge) and the site's logo
+   ===================================================================== */
+:root:not([data-theme="light"]){
+  --orange:#ffd200; --orange-text:#ffd200; --orange-soft:rgba(255,210,0,.14);
+  --pri:#ffd200; --pri-ink:#080808; --accent:#ffd200; --accent-ink:#080808; --pink:#ffd200}
+:root[data-theme="light"]{
+  --orange:#ffd200; --orange-text:#a88a00; --orange-soft:#fff6cc;
+  --pri:#ffd200; --pri-ink:#080808; --accent:#ffd200; --accent-ink:#080808; --pink:#ffd200}
+#s-types .chip[aria-pressed="true"],.chip[aria-pressed="true"],.seg .chip[aria-pressed="true"],.pills button[aria-pressed="true"],.role.admin{color:#080808}
+#s-types .chip[aria-pressed="true"]::after{background:#080808}
+
+/* logo: yellow tile with a lightning bolt + "easyride." wordmark */
+.brand{gap:10px;font-family:Arial,"Helvetica Neue",Helvetica,var(--f-ui);font-weight:900;font-size:26px;letter-spacing:-.058em;line-height:1}
+.brand::before,:root[data-theme="light"] .brand::before{width:34px;height:36px;border-radius:10px;-webkit-mask:none;mask:none;
+  background:#ffd200 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23080808' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m13 2-9 12h7l-1 8 10-13h-7l1-7Z'/%3E%3C/svg%3E") center/22px 22px no-repeat}
+.brand b,:root[data-theme="light"] .brand b{color:inherit;margin-left:0;font-weight:900}
+.brand b::after{content:".";color:var(--orange-text)}
+.brand small{font-family:var(--f-ui);letter-spacing:0;font-size:11px;font-weight:400;padding-left:44px;margin-top:-2px}
+@media (max-width:760px){
+  .brand{font-size:21px;gap:8px}
+  .brand::before,:root[data-theme="light"] .brand::before{width:28px;height:30px;border-radius:8px;background-size:18px 18px}
+  .brand b{margin-left:0}
+}
+.gate .brand{font-size:30px}
+.brand b,:root[data-theme="light"] .brand b{margin-left:-10px}
+@media (max-width:760px){.brand b,:root[data-theme="light"] .brand b{margin-left:-8px}}
+:root[data-theme="light"] #s-types .chip::after{background:#080808}
+:root[data-theme="light"] nav#tabs button[aria-selected="true"] svg{color:var(--orange-text)}
