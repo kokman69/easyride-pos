@@ -731,3 +731,9 @@ nav#tabs button[aria-selected="true"]{box-shadow:inset 3px 0 0 var(--orange)}
 .pcard .ph{cursor:zoom-in}
 @media (max-width:760px){.pdet{grid-template-columns:minmax(0,1fr)}}
 .pdet-info a{color:var(--orange-text);text-decoration:none;font-weight:600}
+/* sale catalogue "all": vehicles grid, then the item rows */
+.plist.mixed{display:flex;flex-direction:column;gap:10px}
+.plist.mixed > .plist{width:100%}
+.mixhead{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:4px}
+.mixhead b{color:var(--ink);font-weight:600}
+.mixhead .num{background:var(--card);border-radius:999px;padding:1px 9px;font-weight:600;color:var(--ink)}

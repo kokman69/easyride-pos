@@ -6,6 +6,8 @@ window.I18N = {
   "sp_choose": ["— აირჩიე —","— choose —","— выберите —","— 選択 —"],
   "sp_hint": ["არჩეული ჩეკში ემატება. ძებნის ველით სია იფილტრება.","The chosen item goes onto the receipt. Type above to filter the list.","Выбранное попадает в чек. Поиск выше фильтрует список.","選んだ商品はレシートに追加されます。上の検索で絞り込めます。"],
   "kind_veh": ["ტრანსპორტი","Vehicles","Транспорт","車両"],
+  "kind_all": ["ყველა","All","Все","すべて"],
+  "kind_items": ["ნივთები","Items","Товары","商品"],
   "kind_easy": ["Easy Items","Easy Items","Easy Items","Easy Items"],
   "easy_search": ["კოდი ან სახელი (Enter — ჩეკში)","Code or name (Enter adds it)","Код или название (Enter — в чек)","コードまたは名前（Enterで追加）"],
   "easy_add": ["+ Easy Item","+ Easy Item","+ Easy Item","+ Easy Item"],

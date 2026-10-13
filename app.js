@@ -693,18 +693,19 @@ const cartNeedsCust = () => S.cart.some(l => !EASY.includes(l.type));
 const hasIdPhoto = (boxId, c) => !!(PICK[boxId]?.photo || c?.photo);
 /* phones / tablets: pick from drop-downs instead of the catalogue grid */
 function renderSimplePick(){
-  const easy = S.sKind === 'easy', qq = $('s-q').value.trim();
+  const kind = saleKind(), qq = $('s-q').value.trim();
   const left = p => (+p.qty || 0) - S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0);
-  $('sp-veh').hidden = easy; $('sp-easy').hidden = !easy;
-  const avail = S.products.filter(p => (easy ? isEasy(p) : !isEasy(p)) && left(p) > 0);
-  if (easy) {
+  $('sp-veh').hidden = kind === 'easy'; $('sp-easy').hidden = kind === 'veh';
+  if (kind !== 'veh') {
+    const avail = S.products.filter(p => isEasy(p) && left(p) > 0);
     const cq = $('sp-code').value.trim(), hit = cq ? byCode(cq, avail) : null;
     $('sp-hit').innerHTML = hit ? `<button type="button" class="btn primary" data-id="${hit.id}">＋ <span class="num">${esc(hit.code)}</span> · ${esc(pName(hit))} · ${+hit.price ? money(hit.price) : '—'}</button>`
       : cq ? `<span class="small muted">${esc(t('code_none'))}</span>` : '';
     const list = avail.filter(p => match(p, qq) && (!cq || match(p, cq))).sort((x, y) => String(x.code || '').localeCompare(String(y.code || ''), undefined, { numeric:true }) || pName(x).localeCompare(pName(y)));
     $('sp-item').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([p.code, pName(p)].filter(Boolean).join(' — '))} · ${+p.price ? money(p.price) : '—'} · ${left(p)} ${esc(t('pcs'))}</option>`).join('');
-    return;
+    if (kind === 'easy') return;
   }
+  const avail = S.products.filter(p => !isEasy(p) && left(p) > 0);
   const types = VEH.filter(k => avail.some(p => p.type === k));
   if (!types.includes(S.spType)) S.spType = types[0] || '';
   $('sp-type').innerHTML = types.map(k => `<option value="${k}" ${k === S.spType ? 'selected' : ''}>${esc(tType(k))} (${avail.filter(p => p.type === k).length})</option>`).join('') || `<option value="">—</option>`;
@@ -717,44 +718,47 @@ $('sp-code').oninput = () => renderSimplePick();
 const addByCode = () => { const p = byCode($('sp-code').value, S.products.filter(isEasy)); if (!p) return false; addToCart(p.id); $('sp-code').value = ''; renderSale(); $('sp-code').focus(); return true; };
 $('sp-code').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if (!addByCode()) toast(t('code_none')); } };
 $('sp-hit').onclick = e => { if (e.target.closest('[data-id]')) addByCode(); };
+/* sale catalogue: "all" (vehicles + items), "vehicles" or "items" */
+const saleKind = () => ['all', 'veh', 'easy'].includes(S.sKind) ? S.sKind : 'all';
+const inSaleKind = (p, k = saleKind()) => k === 'all' || (k === 'easy' ? isEasy(p) : !isEasy(p));
+const leftOf = p => (+p.qty || 0) - S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0);
+const erowHtml = p => { const left = leftOf(p);
+  return `<div class="erow ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
+        <span class="code num">${esc(p.code || '—')}</span><span class="nm">${esc(pName(p))}${p.color ? ` <span class="muted small">${esc(p.color)}</span>` : ''}</span>
+        <span class="num pr">${+p.price ? money(p.price) : '—'}</span><span class="tag ${left <= 0 ? 'out' : left <= 1 ? 'low' : ''}">${left <= 0 ? esc(t('out')) : left + ' ' + esc(t('pcs'))}</span>
+        ${isAdmin() ? `<button type="button" class="btn ghost small" data-edit="${p.id}">${esc(t('edit'))}</button>` : ''}</div>`; };
+const pcardHtml = p => { const left = leftOf(p);
+  const tag = left <= 0 ? `<span class="tag out">${esc(t('out'))}</span>` : `<span class="tag ${left <= 1 ? 'low' : ''}">${left} ${esc(t('pcs'))}</span>`;
+  const ph = p.photos?.[0];
+  return `<div class="pcard ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
+        <div class="ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : esc(t('cust_no_photo'))}</div>
+        <button type="button" class="gal" data-gal="${p.id}" aria-label="${esc(t('details'))}">🔍 ${esc(t('details'))}${p.photos?.length > 1 ? ' · ' + p.photos.length : ''}</button>
+        <div class="bd"><span class="nm">${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</span><span class="meta">${esc(pMeta(p))}</span>
+        ${p.note ? `<span class="meta" style="color:var(--warn)">${esc(p.note)}</span>` : ''}
+        <span class="pr"><span class="num">${+p.price ? money(p.price) : esc(t('negotiable'))}</span>${tag}</span></div></div>`; };
 function renderSale(){
   if (isSimple()) renderSimplePick();
-  const easy = S.sKind === 'easy';
-  $('s-kind').innerHTML = [['veh','kind_veh'],['easy','kind_easy']].map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${(S.sKind || 'veh') === k}">${esc(t(l))}</button>`).join('');
-  $('s-add-easy').hidden = !(easy && isAdmin());
-  $('s-q').placeholder = t(easy ? 'easy_search' : 'search_items');
-  const pool = S.products.filter(p => easy ? isEasy(p) : !isEasy(p));
+  const kind = saleKind(), easy = kind === 'easy';
+  $('s-kind').innerHTML = [['all','kind_all'],['veh','kind_veh'],['easy','kind_items']].map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${kind === k}">${esc(t(l))} <span class="num">${S.products.filter(p => inSaleKind(p, k)).length}</span></button>`).join('');
+  $('s-add-easy').hidden = !(kind !== 'veh' && isAdmin());
+  $('s-q').placeholder = t(kind === 'veh' ? 'search_items' : 'easy_search');
+  const pool = S.products.filter(p => inSaleKind(p));
   const counts = {}; pool.forEach(p => counts[p.type] = (counts[p.type] || 0) + 1);
   if (S.sType && !counts[S.sType]) S.sType = '';
   typeChips($('s-types'), S.sType, x => { S.sType = x; renderSale(); }, counts);
   const qq = $('s-q').value.trim(), ql = qq.toLowerCase();
   const list = pool.filter(p => (!S.sType || p.type === S.sType) && match(p, qq)).sort((a, b) =>
-    (easy && qq ? (String(b.code || '').toLowerCase() === ql) - (String(a.code || '').toLowerCase() === ql) : 0) || ((b.qty > 0) - (a.qty > 0)) || pName(a).localeCompare(pName(b)));
-  $('s-list').classList.toggle('elist', easy);
-  if (easy && S.loaded) {
-    $('s-list').innerHTML = !list.length ? `<div class="empty">${esc(t(pool.length ? 'nothing_found' : 'easy_empty'))}</div>` : list.map(p => {
-      const inCart = S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0), left = (+p.qty || 0) - inCart;
-      return `<div class="erow ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
-        <span class="code num">${esc(p.code || '—')}</span><span class="nm">${esc(pName(p))}${p.color ? ` <span class="muted small">${esc(p.color)}</span>` : ''}</span>
-        <span class="num pr">${+p.price ? money(p.price) : '—'}</span><span class="tag ${left <= 0 ? 'out' : left <= 1 ? 'low' : ''}">${left <= 0 ? esc(t('out')) : left + ' ' + esc(t('pcs'))}</span>
-        ${isAdmin() ? `<button type="button" class="btn ghost small" data-edit="${p.id}">${esc(t('edit'))}</button>` : ''}</div>`;
-    }).join('');
-    renderCart(); return;
-  }
-  $('s-list').innerHTML = !S.loaded ? `<div class="empty">${esc(t('loading'))}</div>`
-    : !S.products.length ? `<div class="empty" style="grid-column:1/-1">${esc(t(isAdmin() ? 'stock_empty_admin' : 'stock_empty'))}</div>`
-    : !list.length ? `<div class="empty" style="grid-column:1/-1">${esc(t('nothing_found'))}</div>`
-    : list.map(p => {
-      const inCart = S.cart.filter(l => l.productId === p.id).reduce((a, l) => a + l.qty, 0), left = (+p.qty || 0) - inCart;
-      const tag = left <= 0 ? `<span class="tag out">${esc(t('out'))}</span>` : `<span class="tag ${left <= 1 ? 'low' : ''}">${left} ${esc(t('pcs'))}</span>`;
-      const ph = p.photos?.[0];
-      return `<div class="pcard ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
-        <div class="ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : esc(t('cust_no_photo'))}</div>
-        <button type="button" class="gal" data-gal="${p.id}" aria-label="${esc(t('details'))}">🔍 ${esc(t('details'))}${p.photos?.length > 1 ? ' · ' + p.photos.length : ''}</button>
-        <div class="bd"><span class="nm">${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</span><span class="meta">${esc(pMeta(p))}</span>
-        ${p.note ? `<span class="meta" style="color:var(--warn)">${esc(p.note)}</span>` : ''}
-        <span class="pr"><span class="num">${+p.price ? money(p.price) : esc(t('negotiable'))}</span>${tag}</span></div></div>`;
-    }).join('');
+    (qq ? (String(b.code || '').toLowerCase() === ql) - (String(a.code || '').toLowerCase() === ql) : 0) || ((b.qty > 0) - (a.qty > 0)) || pName(a).localeCompare(pName(b)));
+  const vl = list.filter(p => !isEasy(p)), el = list.filter(isEasy);
+  const box = $('s-list');
+  box.classList.toggle('elist', !!el.length && !vl.length);
+  box.classList.toggle('mixed', !!el.length && !!vl.length);
+  if (!S.loaded) box.innerHTML = `<div class="empty">${esc(t('loading'))}</div>`;
+  else if (!S.products.length) box.innerHTML = `<div class="empty" style="grid-column:1/-1">${esc(t(isAdmin() ? 'stock_empty_admin' : 'stock_empty'))}</div>`;
+  else if (!list.length) box.innerHTML = `<div class="empty" style="grid-column:1/-1">${esc(t(pool.length ? 'nothing_found' : (easy ? 'easy_empty' : 'nothing_found')))}</div>`;
+  else if (vl.length && el.length) box.innerHTML = `<div class="mixhead"><b>${esc(t('kind_veh'))}</b><span class="num">${vl.length}</span></div><div class="plist">${vl.map(pcardHtml).join('')}</div>
+      <div class="mixhead"><b>${esc(t('kind_items'))}</b><span class="num">${el.length}</span></div><div class="plist elist">${el.map(erowHtml).join('')}</div>`;
+  else box.innerHTML = (el.length ? el.map(erowHtml) : vl.map(pcardHtml)).join('');
   renderCart();
 }
 $('s-q').oninput = () => renderSale();
