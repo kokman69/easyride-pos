@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Georgian:wght@400;500;600;700;800&family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=26">
 <script>try{var md=localStorage.getItem('er-mode');if(md==='simple'||(md!=='full'&&(matchMedia('(pointer:coarse)').matches||innerWidth<=1100)))document.documentElement.classList.add('simple')}catch(e){}</script>
 <script>try{var th=localStorage.getItem('er-theme');if(th==='light'||th==='dark')document.documentElement.setAttribute('data-theme',th)}catch(e){}</script>
 </head>
@@ -67,7 +67,11 @@
             <label class="f"><span data-i="sp_type"></span><select id="sp-type"></select></label>
             <label class="f"><span data-i="sp_model"></span><select id="sp-model"></select></label>
           </div>
-          <label class="f" id="sp-easy"><span data-i="sp_item"></span><select id="sp-item"></select></label>
+          <div class="stack" id="sp-easy" style="gap:8px">
+            <label class="f"><span data-i="sp_code"></span><input id="sp-code" type="search" inputmode="numeric" autocomplete="off" data-iph="sp_code_ph"></label>
+            <div id="sp-hit"></div>
+            <label class="f"><span data-i="sp_item"></span><select id="sp-item"></select></label>
+          </div>
           <div class="small muted" data-i="sp_hint"></div>
         </div>
         <div id="s-list" class="plist"></div>
@@ -166,6 +170,7 @@
         <div class="panel"><div class="pad"><h3 data-i="by_seller"></h3></div><div class="tw" id="rp-sellers"></div></div>
         <div class="panel"><div class="pad"><h3 data-i="by_type"></h3></div><div class="tw" id="rp-types"></div></div>
       </div>
+      <div class="panel"><div class="pad row between"><h3 data-i="veh_sold_all"></h3><span class="small muted num" id="rp-vall-n"></span></div><div id="rp-vall"></div></div>
       <div class="panel"><div class="pad"><h3 data-i="sales_log"></h3></div><div class="tw" id="rp-sales"></div></div>
     </div>
   </section>
@@ -218,12 +223,12 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=25"></script>
-<script src="i18n.js?v=25"></script>
-<script src="countries.js?v=25"></script>
-<script src="mrz.js?v=25"></script>
-<script src="contract.js?v=25"></script>
-<script src="report.js?v=25"></script>
-<script src="app.js?v=25"></script>
+<script src="config.js?v=26"></script>
+<script src="i18n.js?v=26"></script>
+<script src="countries.js?v=26"></script>
+<script src="mrz.js?v=26"></script>
+<script src="contract.js?v=26"></script>
+<script src="report.js?v=26"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>

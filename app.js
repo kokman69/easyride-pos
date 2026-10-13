@@ -101,6 +101,10 @@ function arm(btn, fn){
 const pName = p => p.name || '';
 const plateOf = p => String(p?.plate || '').trim();
 const normQ = x => String(x || '').toLowerCase().replace(/[\s-]/g, '');
+// item codes: "120", "0120" and "00120" are the same code
+const normCode = x => normQ(x).replace(/^0+(?=[0-9a-z])/, '');
+const codeHit = (p, qq) => !!p.code && !!normCode(qq) && normCode(p.code) === normCode(qq);
+const byCode = (qq, avail) => (avail || S.products).find(p => codeHit(p, qq));
 const pMeta = p => [tType(p.type), p.year, p.color, p.engine].filter(Boolean).join(' · ');
 const fleetLabel = f => [f.model, f.color, f.number ? '#' + f.number : ''].filter(Boolean).join(' · ');
 const sellerOpts = sel => (S.settings.sellers || []).map(s => `<option ${s===sel?'selected':''}>${esc(s)}</option>`).join('') || '<option value="">—</option>';
@@ -117,7 +121,7 @@ async function loadTable(name){
   if (name === 'products') { S.products = await q(sb.from('products').select('*').order('name')); S.loaded = true; }
   else if (name === 'customers') S.customers = await q(sb.from('customers').select('*').order('created_at', { ascending:false }).limit(5000));
   else if (name === 'fleet') S.fleet = await q(sb.from('fleet').select('*'));
-  else if (name === 'sales') S.sales = await q(sb.from('sales').select('*').order('created_at', { ascending:false }).limit(1000));
+  else if (name === 'sales') ALLV_AT = 0, S.sales = await q(sb.from('sales').select('*').order('created_at', { ascending:false }).limit(1000));
   else if (name === 'rentals') S.rentals = await q(sb.from('rentals').select('*').order('created_at', { ascending:false }).limit(500));
   else if (name === 'staff') S.staff = isAdmin() ? await q(sb.from('staff').select('*')) : [];
   else if (name === 'settings') { const d = await q(sb.from('settings').select('*').eq('id', 1).maybeSingle()); if (d) S.settings = { sellers:[], tariffs:[], ...d }; }
@@ -266,7 +270,7 @@ function typeChips(el, cur, onPick, counts){
   el.innerHTML = `<button class="chip" aria-pressed="${!cur}" data-t="">${esc(t('all'))}</button>` + keys.map(k => `<button class="chip" aria-pressed="${cur===k}" data-t="${k}">${esc(tType(k))} <span class="num">${counts[k]}</span></button>`).join('');
   el.onclick = e => { const b = e.target.closest('.chip'); if (b) onPick(b.dataset.t); };
 }
-const match = (p, qq) => { if (!qq) return true; const hay = [p.plate, p.name, p.brand, p.color, p.code, p.year, tType(p.type), p.note].join(' ').toLowerCase(); return hay.includes(qq.toLowerCase()) || (!!plateOf(p) && normQ(plateOf(p)).includes(normQ(qq))); };
+const match = (p, qq) => { if (!qq) return true; const hay = [p.plate, p.name, p.brand, p.color, p.code, p.year, tType(p.type), p.note].join(' ').toLowerCase(); return hay.includes(qq.toLowerCase()) || (!!plateOf(p) && normQ(plateOf(p)).includes(normQ(qq))) || (!!p.code && !!normCode(qq) && normCode(p.code).startsWith(normCode(qq))); };
 
 /* ================= images ================= */
 function compressImage(file, max = 1400, quality = .82){
@@ -665,7 +669,10 @@ function renderSimplePick(){
   $('sp-veh').hidden = easy; $('sp-easy').hidden = !easy;
   const avail = S.products.filter(p => (easy ? isEasy(p) : !isEasy(p)) && left(p) > 0);
   if (easy) {
-    const list = avail.filter(p => match(p, qq)).sort((x, y) => String(x.code || '').localeCompare(String(y.code || ''), undefined, { numeric:true }) || pName(x).localeCompare(pName(y)));
+    const cq = $('sp-code').value.trim(), hit = cq ? byCode(cq, avail) : null;
+    $('sp-hit').innerHTML = hit ? `<button type="button" class="btn primary" data-id="${hit.id}">＋ <span class="num">${esc(hit.code)}</span> · ${esc(pName(hit))} · ${+hit.price ? money(hit.price) : '—'}</button>`
+      : cq ? `<span class="small muted">${esc(t('code_none'))}</span>` : '';
+    const list = avail.filter(p => match(p, qq) && (!cq || match(p, cq))).sort((x, y) => String(x.code || '').localeCompare(String(y.code || ''), undefined, { numeric:true }) || pName(x).localeCompare(pName(y)));
     $('sp-item').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([p.code, pName(p)].filter(Boolean).join(' — '))} · ${+p.price ? money(p.price) : '—'} · ${left(p)} ${esc(t('pcs'))}</option>`).join('');
     return;
   }
@@ -677,6 +684,10 @@ function renderSimplePick(){
 }
 $('sp-type').onchange = e => { S.spType = e.target.value; renderSale(); };
 ['sp-model','sp-item'].forEach(id => $(id).onchange = e => { const v = e.target.value; if (!v) return; addToCart(v); e.target.value = ''; });
+$('sp-code').oninput = () => renderSimplePick();
+const addByCode = () => { const p = byCode($('sp-code').value, S.products.filter(isEasy)); if (!p) return false; addToCart(p.id); $('sp-code').value = ''; renderSale(); $('sp-code').focus(); return true; };
+$('sp-code').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if (!addByCode()) toast(t('code_none')); } };
+$('sp-hit').onclick = e => { if (e.target.closest('[data-id]')) addByCode(); };
 function renderSale(){
   if (isSimple()) renderSimplePick();
   const easy = S.sKind === 'easy';
@@ -724,7 +735,7 @@ $('s-add-easy').onclick = () => openProduct(null, { type:'accessory', qty:1 });
 $('s-q').addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const qq = $('s-q').value.trim().toLowerCase(); if (!qq) return;
-  const p = S.products.find(x => String(x.code || '').toLowerCase() === qq);
+  const p = S.products.find(x => String(x.code || '').toLowerCase() === qq) || byCode(qq);
   if (p) { e.preventDefault(); addToCart(p.id); $('s-q').value = ''; renderSale(); }
 });
 function addToCart(id){
@@ -1500,11 +1511,53 @@ function renderReport(){
   const bt = {}; sales.forEach(s => (s.lines || []).forEach(l => { const o = bt[l.type || 'other'] ??= { q:0, sum:{} }; o.q += +l.qty || 0; addCur(o.sum, s.currency, l.total); }));
   const tk = Object.keys(bt).sort((x, y) => bt[y].q - bt[x].q);
   $('rp-types').innerHTML = tk.length ? `<table><thead><tr><th>${esc(t('col_type'))}</th><th class="r">${esc(t('col_units'))}</th><th class="r">${esc(t('col_sum'))}*</th></tr></thead><tbody>${tk.map(k => `<tr><td>${esc(tType(k))}</td><td class="r num">${bt[k].q}</td><td class="r num">${moneyMulti(bt[k].sum)}</td></tr>`).join('')}</tbody></table><div class="pad small muted">${esc(t('excl_extra'))}</div>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
+  renderVehSold(sales);
   $('rp-sales').innerHTML = sales.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_items'))}</th><th>${esc(t('seller'))}</th><th>${esc(t('payment'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${sales.map(s => `<tr data-id="${s.id}"><td class="num">${fmtTs(s.created_at)}</td>
     <td>${(s.lines || []).map(l => `${esc(l.name)}${l.qty > 1 ? ` ×${l.qty}` : ''}${+l.unit_price !== +l.list_price && +l.list_price ? ` <span class="strike">${money(l.list_price)}</span>` : ''}${+l.pct ? ` <span class="tag low">−${+l.pct}%</span>` : ''}${l.vin ? ` <span class="small muted num">VIN ${esc(l.vin)}</span>` : ''}`).join('<br>')}${s.customer_name ? `<div class="small muted">${esc(s.customer_name)} ${esc(s.phone || '')}</div>` : ''}${s.note ? `<div class="small muted">${esc(s.note)}</div>` : ''}</td>
     <td>${esc(s.seller || '')}</td><td>${esc(tPay(s.payment))}</td><td class="r num"><b>${money(s.total, s.currency)}</b>${+s.extra_discount ? `<div class="small muted">−${money(s.extra_discount, s.currency)}</div>` : ''}</td>
     <td style="white-space:nowrap"><button class="btn ghost small" data-act="srep">${esc(t('report_btn'))}</button>${isAdmin() ? `<button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button><button class="btn ghost small danger" data-act="void">${esc(t('void'))}</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
 }
+/* vehicles sold per type — all time (every sale, not only the 1000 loaded ones) and in the chosen period */
+let ALLV = null, ALLV_AT = 0, VS_OPEN = '';
+async function loadAllVehSales(){
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const part = await q(sb.from('sales').select('lines,currency').order('created_at', { ascending:true }).range(from, from + 999));
+    rows.push(...(part || [])); if (!part || part.length < 1000) break;
+  }
+  ALLV = rows; ALLV_AT = Date.now();
+}
+const vehName = l => String(l.name || '—').replace(/^[A-Z]{2}\s?\d{3,4}\s*·\s*/, '').trim() || '—';
+function vehTally(sales){
+  const o = {};
+  sales.forEach(s => (s.lines || []).forEach(l => { if (!VEH.includes(l.type)) return;
+    const x = o[l.type] ??= { q:0, sum:{}, models:{} }, qn = +l.qty || 0;
+    x.q += qn; addCur(x.sum, s.currency, l.total ?? (qn * (+l.unit_price || 0)));
+    const m = x.models[vehName(l)] ??= { q:0, sum:{} }; m.q += qn; addCur(m.sum, s.currency, l.total ?? (qn * (+l.unit_price || 0))); }));
+  return o;
+}
+function renderVehSold(periodSales){
+  const box = $('rp-vall'); if (!box) return;
+  if (!ALLV || Date.now() - ALLV_AT > 60000) {
+    if (!ALLV) box.innerHTML = `<div class="small muted pad">${esc(t('loading'))}</div>`;
+    loadAllVehSales().then(() => { if (S.tab === 'report') renderVehSold(periodSales); }).catch(e => { console.error(e); if (!ALLV) box.innerHTML = `<div class="small muted pad">${esc(t('save_failed'))}</div>`; });
+    if (!ALLV) return;
+  }
+  const all = vehTally(ALLV), per = vehTally(periodSales);
+  const types = VEH.filter(k => all[k]);
+  const total = types.reduce((n, k) => n + all[k].q, 0);
+  $('rp-vall-n').textContent = total ? `${t('total')}: ${total} ${t('pcs')}` : '';
+  if (!types.length) { box.innerHTML = `<div class="empty">${esc(t('no_records'))}</div>`; return; }
+  if (VS_OPEN && !all[VS_OPEN]) VS_OPEN = '';
+  box.innerHTML = `<div class="vsold">${types.map(k => `<button type="button" class="vtile" data-t="${k}" aria-pressed="${VS_OPEN === k}">
+      <span class="vt-n num">${all[k].q}</span><span class="vt-l">${esc(tType(k))}</span>
+      <span class="vt-s num">${moneyMulti(all[k].sum)}</span>
+      <span class="vt-p small">${esc(t('in_period'))}: <b class="num">${per[k]?.q || 0}</b></span></button>`).join('')}</div>
+    ${VS_OPEN ? (() => { const ms = Object.entries(all[VS_OPEN].models).sort((a, b) => b[1].q - a[1].q || a[0].localeCompare(b[0]));
+      return `<div class="tw"><table><thead><tr><th>${esc(tType(VS_OPEN))} — ${esc(t('model_col'))}</th><th class="r">${esc(t('col_units'))}</th><th class="r">${esc(t('col_sum'))}</th></tr></thead>
+        <tbody>${ms.map(([n, m]) => `<tr><td>${esc(n)}</td><td class="r num">${m.q}</td><td class="r num">${moneyMulti(m.sum)}</td></tr>`).join('')}</tbody></table></div>`; })() : `<div class="small muted pad" style="padding-top:0">${esc(t('vsold_hint'))}</div>`}`;
+}
+$('rp-vall').onclick = e => { const b = e.target.closest('.vtile'); if (!b) return; VS_OPEN = VS_OPEN === b.dataset.t ? '' : b.dataset.t; renderReport(); };
 $('rp-period').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; S.period = b.dataset.p; $('rp-from').value = ''; $('rp-to').value = ''; renderReport(); };
 $('rp-from').onchange = $('rp-to').onchange = () => { S.period = 'custom'; renderReport(); };
 $('rp-sales').onclick = e => {
