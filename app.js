@@ -817,26 +817,49 @@ $('c-save').onclick = async () => {
 };
 
 /* ================= stock ================= */
+/* stock: vehicles and items apart; what is left is listed first, sold / used-up ones underneath, greyed out with a red mark */
+function soldInfo(){
+  const m = {};
+  S.sales.forEach(s => (s.lines || []).forEach(l => { if (l.product_id && (!m[l.product_id] || s.day > m[l.product_id])) m[l.product_id] = s.day; }));
+  return m;
+}
 function renderStock(){
-  const counts = {}; S.products.forEach(p => counts[p.type] = (counts[p.type] || 0) + 1);
+  const easy = S.pKind === 'easy', inKind = p => easy ? isEasy(p) : !isEasy(p);
+  $('p-kind').innerHTML = [['veh','kind_veh'],['easy','kind_easy']].map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${(S.pKind || 'veh') === k}">${esc(t(l))} <span class="num">${S.products.filter(p => k === 'easy' ? isEasy(p) : !isEasy(p)).length}</span></button>`).join('');
+  const pool = S.products.filter(inKind);
+  const counts = {}; pool.forEach(p => counts[p.type] = (counts[p.type] || 0) + 1);
+  if (S.pType && !counts[S.pType]) S.pType = '';
   typeChips($('p-types'), S.pType, x => { S.pType = x; renderStock(); }, counts);
   const units = S.products.reduce((a, p) => a + (+p.qty || 0), 0), value = S.products.reduce((a, p) => a + (+p.qty || 0) * (+p.price || 0), 0);
   const out = S.products.filter(p => !(+p.qty > 0)).length, veh = S.products.filter(p => VEH.includes(p.type)).reduce((a, p) => a + (+p.qty || 0), 0);
   $('p-stats').innerHTML = [['st_units', units], ['st_vehicles', veh], ['st_value', money(value)], ['st_out', out]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('');
   const qq = $('p-q').value.trim(), only = $('p-instock').checked, adm = isAdmin();
-  const list = S.products.filter(p => (!S.pType || p.type === S.pType) && match(p, qq) && (!only || +p.qty > 0)).sort((a, b) => (a.type || '').localeCompare(b.type || '') || pName(a).localeCompare(pName(b)));
+  const sorter = (a, b) => (a.type || '').localeCompare(b.type || '') || (plateOf(a) ? 0 : 1) - (plateOf(b) ? 0 : 1) || plateOf(a).localeCompare(plateOf(b), undefined, { numeric:true }) || pName(a).localeCompare(pName(b));
+  const shown = pool.filter(p => (!S.pType || p.type === S.pType) && match(p, qq));
+  const have = shown.filter(p => +p.qty > 0).sort(sorter), gone = only ? [] : shown.filter(p => !(+p.qty > 0)).sort(sorter);
   if (!S.loaded) { $('p-list').innerHTML = `<div class="empty">${esc(t('loading'))}</div>`; return; }
-  if (!list.length) { $('p-list').innerHTML = `<div class="empty">${esc(t(S.products.length ? 'nothing_found' : (adm ? 'stock_empty_admin' : 'stock_empty')))}</div>`; return; }
-  $('p-list').innerHTML = list.map(p => `<div class="item" data-id="${p.id}">
-    <button class="ph" data-act="gal" aria-label="${esc(t('photos'))}">${p.photos?.[0] ? `<img src="${esc(photoUrl(p.photos[0]))}" alt="" loading="lazy">` : esc(t('cust_no_photo'))}</button>
-    <div style="min-width:0"><b>${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</b><div class="small muted">${esc(pMeta(p))}${p.code ? ' · ' + esc(p.code) : ''}</div>
+  const filt = qq || S.pType ? `<div class="filtbar small"><span>${esc(t('shown_n').replace('{n}', have.length + gone.length).replace('{all}', pool.length))}</span><button type="button" class="btn ghost small" data-act="clearf">✕ ${esc(t('clear_filter'))}</button></div>` : '';
+  if (!have.length && !gone.length) { $('p-list').innerHTML = filt + `<div class="empty">${esc(t(pool.length ? 'nothing_found' : (adm ? 'stock_empty_admin' : 'stock_empty')))}</div>`; return; }
+  const sold = soldInfo();
+  const row = p => { const g = !(+p.qty > 0), sd = sold[p.id];
+    return `<div class="item ${g ? 'gone' : ''}" data-id="${p.id}">
+    <button class="ph" data-act="gal" aria-label="${esc(t('photos'))}">${p.photos?.[0] ? `<img src="${esc(photoUrl(p.photos[0]))}" alt="" loading="lazy">` : esc(t('cust_no_photo'))}${g ? `<span class="goneband">${esc(t(easy ? 'used_up' : 'sold_tag'))}</span>` : ''}</button>
+    <div style="min-width:0"><b>${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</b>${g ? ` <span class="tag out">${esc(t(easy ? 'used_up' : 'sold_tag'))}${sd ? ' · ' + esc(fmtDate(sd)) : ''}</span>` : ''}<div class="small muted">${esc(pMeta(p))}${p.code ? ' · ' + esc(p.code) : ''}</div>
       ${p.note ? `<div class="small" style="color:var(--warn)">${esc(p.note)}</div>` : ''}<div class="num" style="font-weight:700;margin-top:2px">${+p.price ? money(p.price) : esc(t('negotiable'))}</div></div>
     <div class="side">${adm ? `<span class="qtyctl"><button data-act="dec" aria-label="−">−</button><span class="num" style="min-width:24px;text-align:center">${+p.qty || 0}</span><button data-act="inc" aria-label="+">+</button></span>` : `<span class="tag ${+p.qty > 0 ? '' : 'out'}">${+p.qty || 0} ${esc(t('pcs'))}</span>`}
-      ${adm ? `<span class="acts"><button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button><button class="btn ghost small danger" data-act="del">${esc(t('remove'))}</button></span>` : ''}</div></div>`).join('');
+      ${adm ? `<span class="acts"><button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button><button class="btn ghost small danger" data-act="del">${esc(t('remove'))}</button></span>` : ''}</div></div>`; };
+  $('p-list').innerHTML = filt
+    + `<div class="stockhead"><b>${esc(t(easy ? 'in_stock_items' : 'in_stock_veh'))}</b><span class="num">${have.length}</span></div>`
+    + (have.length ? have.map(row).join('') : `<div class="empty small">—</div>`)
+    + (gone.length ? `<div class="stockhead gonehead"><b>${esc(t(easy ? 'used_up_list' : 'sold_list'))}</b><span class="num">${gone.length}</span></div>` + gone.map(row).join('') : '');
 }
+$('p-kind').onclick = e => { const b = e.target.closest('[data-k]'); if (!b) return; S.pKind = b.dataset.k; S.pType = ''; renderStock(); };
+// the browser must not refill the search box after a reload (a leftover "8" hid most of the stock)
+$('p-q').value = '';
 $('p-q').oninput = renderStock; $('p-instock').onchange = renderStock;
 $('p-list').onclick = async e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
+  if (b.dataset.act === 'clearf') { $('p-q').value = ''; S.pType = ''; renderStock(); return; }
   const p = S.products.find(x => x.id === b.closest('.item').dataset.id); if (!p) return;
   const act = b.dataset.act;
   if (act === 'gal') return showGallery(p);

@@ -692,3 +692,20 @@ nav#tabs button[aria-selected="true"]{box-shadow:inset 3px 0 0 var(--orange)}
 #rp-vall .tw{padding:0 0 8px}
 #sp-hit:empty{display:none}
 #sp-hit .btn{width:100%;justify-content:flex-start;white-space:normal;text-align:left}
+/* stock: in stock first, sold / used-up underneath — greyed out with a red mark */
+#p-kind{margin-top:2px}
+.stockhead{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:1}
+.stockhead b{color:var(--ink);font-weight:600}
+.stockhead .num{background:var(--card);border-radius:999px;padding:1px 9px;font-weight:600;color:var(--ink)}
+.stockhead.gonehead{border-top:1px solid var(--line);margin-top:6px}
+.stockhead.gonehead b{color:var(--danger)}
+.stockhead.gonehead .num{background:var(--danger-soft);color:var(--danger)}
+.item.gone{background:repeating-linear-gradient(-45deg,transparent 0 10px,var(--danger-soft) 10px 11px);box-shadow:inset 3px 0 0 var(--danger)}
+.item.gone > div{color:var(--muted)}
+.item.gone > div b{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--danger)}
+.item.gone .side{opacity:.6}
+.item.gone .ph{position:relative}
+.item.gone .ph img{filter:grayscale(1) brightness(.75)}
+.item.gone .tag.out{opacity:1}
+.goneband{position:absolute;left:0;right:0;bottom:0;background:var(--danger);color:#fff;font:700 10px var(--f-ui);text-align:center;padding:2px 0;letter-spacing:.02em}
+.filtbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;background:var(--orange-soft);color:var(--ink);border-bottom:1px solid var(--line)}
