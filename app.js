@@ -303,14 +303,43 @@ function paintPills(sel){
 function closeOv(){ $('ov').hidden = true; $('ov').innerHTML = ''; document.body.style.overflow = ''; }
 $('ov').onclick = e => { if (e.target === $('ov')) closeOv(); };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('ov').hidden) closeOv(); else closeSheet(); } });
-function showGallery(p){
+/* vehicle / item details: big photo with thumbnails, every known fact, and "add to sale" */
+const MILE_K = 'გარბენი';
+const mileOf = p => String(p?.specs?.[MILE_K] ?? '').trim();
+function showGallery(p, fromSale){
   if (!p) return;
-  const specs = Object.entries(p.specs || {}).filter(([, v]) => v);
-  openOv(`<div class="row between" style="flex-wrap:nowrap"><h2>${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
-    <div class="row between"><span class="muted">${esc(pMeta(p))}</span><b class="num" style="font-size:20px">${+p.price ? money(p.price) : esc(t('negotiable'))}</b></div>
-    ${p.photos?.length ? `<div class="gallery">${p.photos.map(ph => `<img src="${esc(photoUrl(ph))}" alt="${esc(pName(p))}" loading="lazy">`).join('')}</div>` : ''}
-    ${specs.length ? `<dl class="specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
-    ${p.note ? `<p class="small" style="color:var(--warn);margin:0">${esc(p.note)}</p>` : ''}`);
+  const veh = !isEasy(p), photos = p.photos || [];
+  const left = (+p.qty || 0) - S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0);
+  const mile = mileOf(p);
+  const facts = [
+    ['f_type', tType(p.type)], ['f_brand', p.brand], ['f_year', p.year],
+    ...(veh ? [['f_mileage', !mile ? '—' : /^\d[\d\s]*$/.test(mile) ? `${mile.replace(/\s/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} ${t('km')}` : mile]] : []),
+    ['f_color', p.color], ['f_engine', p.engine], [veh ? 'vin_l' : 'f_code', p.code], ['in_stock_label', `${+p.qty || 0} ${t('pcs')}`]
+  ].filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '');
+  const specs = Object.entries(p.specs || {}).filter(([k, v]) => v && k !== MILE_K);
+  openOv(`<div class="row between" style="flex-wrap:nowrap;align-items:flex-start"><h2>${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="pdet">
+      <div class="pdet-media">${photos.length ? `<div class="pdet-main"><img id="pd-main" src="${esc(photoUrl(photos[0]))}" alt="${esc(pName(p))}">${photos.length > 1 ? `<button type="button" class="pdet-nav prev" data-step="-1" aria-label="‹">‹</button><button type="button" class="pdet-nav next" data-step="1" aria-label="›">›</button><span class="pdet-count num" id="pd-count">1 / ${photos.length}</span>` : ''}</div>
+        ${photos.length > 1 ? `<div class="pdet-thumbs">${photos.map((ph, i) => `<button type="button" data-i="${i}" aria-pressed="${i === 0}"><img src="${esc(photoUrl(ph))}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}`
+        : `<div class="pdet-main empty muted">${esc(t('cust_no_photo'))}</div>`}</div>
+      <div class="pdet-info">
+        <div class="pdet-price num">${+p.price ? money(p.price) : esc(t('negotiable'))}</div>
+        <dl class="specs pdet-facts">${facts.map(([k, v]) => `<dt>${esc(t(k))}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+        ${specs.length ? `<h3 style="margin:6px 0 0">${esc(t('specs_title'))}</h3><dl class="specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+        ${p.note ? `<p class="small" style="color:var(--warn);margin:0">${esc(p.note)}</p>` : ''}
+        ${p.source_url ? `<a class="small" href="${esc(p.source_url)}" target="_blank" rel="noopener">${esc(t('view_site'))} ↗</a>` : ''}
+        <div class="row" style="gap:8px;margin-top:auto">${fromSale ? `<button type="button" class="btn primary big" id="pd-add" ${left > 0 ? '' : 'disabled'} style="flex:1;width:auto">${esc(t(left > 0 ? 'add_to_sale' : 'out'))}</button>` : ''}
+          ${isAdmin() ? `<button type="button" class="btn" id="pd-edit">${esc(t('edit'))}</button>` : ''}</div>
+      </div></div>`, 'wide');
+  let cur = 0;
+  const go = i => { if (!photos.length) return; cur = (i + photos.length) % photos.length; $('pd-main').src = photoUrl(photos[cur]); if ($('pd-count')) $('pd-count').textContent = `${cur + 1} / ${photos.length}`;
+    $('ov').querySelectorAll('.pdet-thumbs [data-i]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.i === cur)); };
+  $('ov').querySelector('.pdet-media').onclick = e => { const th = e.target.closest('[data-i]'); if (th) return go(+th.dataset.i); const st = e.target.closest('[data-step]'); if (st) return go(cur + +st.dataset.step);
+    if (e.target.id === 'pd-main') e.target.closest('.pdet-main').classList.toggle('zoom'); };
+  const keys = e => { if (!$('pd-main')) { document.removeEventListener('keydown', keys); return; } if (e.key === 'ArrowRight') go(cur + 1); else if (e.key === 'ArrowLeft') go(cur - 1); };
+  document.addEventListener('keydown', keys);
+  if ($('pd-add')) $('pd-add').onclick = () => { closeOv(); addToCart(p.id); };
+  if ($('pd-edit')) $('pd-edit').onclick = () => { closeOv(); openProduct(p); };
 }
 async function viewIdPhoto(path){
   if (!path) return;
@@ -721,7 +750,7 @@ function renderSale(){
       const ph = p.photos?.[0];
       return `<div class="pcard ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
         <div class="ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : esc(t('cust_no_photo'))}</div>
-        <button type="button" class="gal" data-gal="${p.id}" aria-label="${esc(t('details'))}">${esc(t('details'))}${p.photos?.length > 1 ? ' · ' + p.photos.length : ''}</button>
+        <button type="button" class="gal" data-gal="${p.id}" aria-label="${esc(t('details'))}">🔍 ${esc(t('details'))}${p.photos?.length > 1 ? ' · ' + p.photos.length : ''}</button>
         <div class="bd"><span class="nm">${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</span><span class="meta">${esc(pMeta(p))}</span>
         ${p.note ? `<span class="meta" style="color:var(--warn)">${esc(p.note)}</span>` : ''}
         <span class="pr"><span class="num">${+p.price ? money(p.price) : esc(t('negotiable'))}</span>${tag}</span></div></div>`;
@@ -747,7 +776,8 @@ function addToCart(id){
   renderSale(); toast(pName(p) + ' +1');
 }
 $('s-list').onclick = e => {
-  const g = e.target.closest('[data-gal]'); if (g) { e.stopPropagation(); return showGallery(S.products.find(x => x.id === g.dataset.gal)); }
+  const g = e.target.closest('[data-gal]'); if (g) { e.stopPropagation(); return showGallery(S.products.find(x => x.id === g.dataset.gal), true); }
+  const ph = e.target.closest('.pcard .ph'); if (ph) { e.stopPropagation(); return showGallery(S.products.find(x => x.id === ph.closest('.pcard').dataset.id), true); }
   const ed = e.target.closest('[data-edit]'); if (ed) { openProduct(S.products.find(p => p.id === ed.dataset.edit)); return; }
   const c = e.target.closest('.pcard, .erow'); if (c && !c.classList.contains('dis')) addToCart(c.dataset.id);
 };
@@ -887,6 +917,7 @@ function openProduct(p, preset){
         ${fld('plate', 'f_plate', 'autocapitalize="characters" spellcheck="false" placeholder="BA2148"')}
         ${fld('code', 'f_vin', 'required autocapitalize="characters" spellcheck="false" placeholder="LR4R4UE03T6907005"', true)}
         ${fld('color', 'f_color')}${fld('year', 'f_year', 'inputmode="numeric" maxlength="4"')}
+        <label class="f">${esc(t('f_mileage'))}, ${esc(t('km'))}<input id="pf-mileage" value="${esc(mileOf(v))}" inputmode="numeric" placeholder="12500"></label>
         ${fld('engine', 'f_engine', 'placeholder="49 cc / 1200 W"')}${fld('price', 'f_price', 'type="number" min="0" step="1" inputmode="decimal"')}
         ${p ? fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric"') : ''}
         ${fld('note', 'note', '', true)}</div>`
@@ -922,6 +953,9 @@ function openProduct(p, preset){
       if (plate && S.products.some(x => x.id !== p?.id && normQ(plateOf(x)) === normQ(plate))) { err.textContent = t('plate_exists'); err.hidden = false; $('pf-plate').focus(); return; }
       data = { name:g('name'), type:g('type'), code:vin, plate, color:g('color'), year:g('year'), engine:g('engine'), note:g('note'),
         price:Math.max(0, +g('price') || 0), qty: p ? Math.max(0, Math.round(+g('qty') || 0)) : 1 };
+      const sp = { ...(p?.specs || {}) }, mi = g('mileage').replace(/\s+/g, ' ');
+      if (mi) sp[MILE_K] = mi; else delete sp[MILE_K];
+      data.specs = sp;
     } else {
       data = { name:g('name'), price:Math.max(0, r2(g('price'))), qty:Math.max(0, Math.round(+g('qty') || 0)) };
       if (!p) data.type = 'accessory';

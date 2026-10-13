@@ -709,3 +709,25 @@ nav#tabs button[aria-selected="true"]{box-shadow:inset 3px 0 0 var(--orange)}
 .item.gone .tag.out{opacity:1}
 .goneband{position:absolute;left:0;right:0;bottom:0;background:var(--danger);color:#fff;font:700 10px var(--f-ui);text-align:center;padding:2px 0;letter-spacing:.02em}
 .filtbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;background:var(--orange-soft);color:var(--ink);border-bottom:1px solid var(--line)}
+/* product details: big photo + every fact */
+.pdet{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,1fr);gap:18px;align-items:start}
+.pdet-media{display:flex;flex-direction:column;gap:8px;min-width:0}
+.pdet-main{position:relative;border-radius:14px;overflow:hidden;background:var(--card);aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+.pdet-main img{width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;background:#0e0f10}
+:root[data-theme="light"] .pdet-main img{background:#f1f1f3}
+.pdet-main.zoom{position:fixed;inset:0;z-index:90;border-radius:0;aspect-ratio:auto;background:rgba(0,0,0,.92)}
+.pdet-main.zoom img{cursor:zoom-out;background:transparent}
+.pdet-nav{position:absolute;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;border:0;background:rgba(8,8,8,.6);color:#fff;font-size:24px;line-height:1;cursor:pointer}
+.pdet-nav.prev{left:10px}.pdet-nav.next{right:10px}
+.pdet-count{position:absolute;right:10px;bottom:10px;background:rgba(8,8,8,.6);color:#fff;border-radius:999px;padding:2px 10px;font-size:12px}
+.pdet-thumbs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.pdet-thumbs button{flex:none;width:72px;height:54px;padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:var(--card);cursor:pointer}
+.pdet-thumbs button[aria-pressed="true"]{border-color:var(--orange)}
+.pdet-thumbs img{width:100%;height:100%;object-fit:cover;display:block}
+.pdet-info{display:flex;flex-direction:column;gap:12px;min-height:100%}
+.pdet-price{font-size:30px;font-weight:700;letter-spacing:-.02em}
+.pdet-facts{background:var(--card);border-radius:12px;padding:12px 14px;font-size:14px}
+.pdet-facts dd{font-weight:600}
+.pcard .ph{cursor:zoom-in}
+@media (max-width:760px){.pdet{grid-template-columns:minmax(0,1fr)}}
+.pdet-info a{color:var(--orange-text);text-decoration:none;font-weight:600}
