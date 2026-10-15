@@ -241,6 +241,7 @@ const ICONS = {
   rent:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   customers:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>',
   report:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  fin:'<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'
 };
 const isSimple = () => document.documentElement.classList.contains('simple');
@@ -256,15 +257,15 @@ function paintMode(){
 $('mode-btn').onclick = () => { document.documentElement.classList.toggle('simple'); ls.set('er-mode', isSimple() ? 'simple' : 'full'); document.querySelectorAll('details.more').forEach(d => delete d.dataset.touched); paintMode(); buildTabs(); render(); };
 document.querySelectorAll('details.more > summary').forEach(s => s.addEventListener('click', () => { s.parentElement.dataset.touched = 1; }));
 function buildTabs(){
-  let tabs = isAdmin() ? ['sale','stock','rent','customers','report','settings'] : ['sale','stock','rent','customers'];
+  let tabs = isAdmin() ? ['sale','stock','rent','customers','fin','report','settings'] : ['sale','stock','rent','customers','fin'];
   if (isSimple()) tabs = ['sale','rent'];
   if (!tabs.includes(S.tab)) S.tab = 'sale';
   paintMode();
   $('tabs').innerHTML = tabs.map(k => `<button data-tab="${k}" role="tab" aria-selected="${k===S.tab}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg><span>${esc(t('tab_' + k))}</span></button>`).join('');
-  ['sale','stock','rent','customers','report','settings'].forEach(k => $('v-' + k).hidden = k !== S.tab);
+  ['sale','stock','rent','customers','fin','report','settings'].forEach(k => $('v-' + k).hidden = k !== S.tab);
   $('p-add').hidden = $('p-add-veh').hidden = !isAdmin();
 }
-$('tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.tab = b.dataset.tab; closeSheet(); buildTabs(); render(); window.scrollTo(0, 0); };
+$('tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.tab = b.dataset.tab; if (S.tab === 'fin') S.fin.ready = null; closeSheet(); buildTabs(); render(); window.scrollTo(0, 0); };
 function typeChips(el, cur, onPick, counts){
   const keys = TYPE_KEYS.filter(k => counts[k]);
   el.innerHTML = `<button class="chip" aria-pressed="${!cur}" data-t="">${esc(t('all'))}</button>` + keys.map(k => `<button class="chip" aria-pressed="${cur===k}" data-t="${k}">${esc(tType(k))} <span class="num">${counts[k]}</span></button>`).join('');
@@ -841,7 +842,13 @@ $('c-save').onclick = async () => {
     }
     const x = cartTotals();
     const lines = S.cart.map(l => ({ product_id:l.productId, name:l.name.trim(), type:l.type, list_price:l.listPrice, unit_price:r2(l.unitPrice), qty:l.qty, pct:+l.pct || 0 }));
-    await q(sb.rpc('record_sale', { p_lines:lines, p_extra:x.extra, p_seller:$('c-seller').value, p_payment:$('c-pay').value, p_customer:cust?.id || null, p_note:$('c-note').value.trim() }));
+    const args = { p_lines:lines, p_extra:x.extra, p_seller:$('c-seller').value, p_payment:$('c-pay').value, p_customer:cust?.id || null, p_note:$('c-note').value.trim() };
+    // one key per checkout: a double tap or a retry after a lost connection can never record the sale twice
+    const sig = JSON.stringify(args);
+    if (S.saleSig !== sig || !S.saleKey) { S.saleSig = sig; S.saleKey = crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2); }
+    try { await q(sb.rpc('record_sale', { ...args, p_key:S.saleKey })); }
+    catch(e){ if (!missingFn(e)) throw e; await q(sb.rpc('record_sale', args)); }
+    S.saleKey = S.saleSig = null;
     const repData = saleReportData({ lines, total:x.total, extra:x.extra, payment:$('c-pay').value, seller:$('c-seller').value, cust, note:$('c-note').value.trim(), date:new Date(), currency:'GEL' });
     S.cart = []; $('c-disc').value = 0; $('c-note').value = ''; resetPicker('c-cust'); closeSheet();
     toast(t('sale_saved') + ' · ' + money(x.total));
@@ -902,7 +909,7 @@ $('p-list').onclick = async e => {
   if (act === 'del') return arm(b, async () => {
     try { await q(sb.from('products').delete().eq('id', p.id)); if (p.photos?.some(isOwnPhoto)) sb.storage.from('products').remove(p.photos.filter(isOwnPhoto)).catch(() => {}); toast(t('deleted')); await reload('products'); } catch(err){ fail(err); }
   });
-  try { const nq = Math.max(0, (+p.qty || 0) + (act === 'inc' ? 1 : -1)); p.qty = nq; renderStock(); await q(sb.from('products').update({ qty:nq, updated_at:new Date().toISOString() }).eq('id', p.id)); } catch(err){ fail(err); reload('products'); }
+  if (act === 'inc' || act === 'dec') openStockAdjust(p, act === 'inc' ? 1 : -1);
 };
 $('p-add').onclick = () => openProduct(null, { type:'accessory', qty:1 });
 $('p-add-veh').onclick = () => openProduct(null, { type:'moped', qty:1 });
@@ -1867,8 +1874,166 @@ function logLine(e, saleTx){
   return { e, icon:'•', text:esc(e.tbl + ' ' + e.action) };
 }
 
+/* ================= finance: dashboard, cash register, expenses, CSV ================= */
+/* deposits are money held for the customer — they count in the cash drawer, never in revenue */
+const EXP_CATS = ['rent','salary','fuel','repair','parts','utilities','marketing','tax','supplies','other'];
+const STOCK_REASONS = ['received','writeoff','damaged','correction','supplier_return','customer_return','other'];
+const missingFn = e => /PGRST202|PGRST205|42P01|42883|does not exist|Could not find/i.test((e?.code || '') + ' ' + (e?.message || ''));
+S.fin = { ready:null, expenses:[], cash:null, moves:[], from:'', to:'' };
+async function loadFin(){
+  const today = dayKey(new Date());
+  try {
+    const [ex, cs] = await Promise.all([
+      q(sb.from('expenses').select('*').order('created_at', { ascending:false }).limit(2000)),
+      q(sb.from('cash_sessions').select('*').eq('day', today).limit(1))
+    ]);
+    S.fin.expenses = ex || []; S.fin.cash = (cs || [])[0] || null; S.fin.ready = true;
+    S.fin.moves = [];
+    if (isAdmin()) try { S.fin.moves = await q(sb.from('stock_moves').select('*').order('at', { ascending:false }).limit(60)) || []; } catch(e){ console.error(e); }
+  } catch(e){ if (missingFn(e)) S.fin.ready = false; else { console.error(e); S.fin.ready = S.fin.ready ?? false; } }
+}
+const gel = x => (x.currency || 'GEL') === 'GEL';
+const isCash = p => p === 'cash';
+/* every cash movement of one day, worked out from the real records */
+function cashFlow(day){
+  const sales = S.sales.filter(s => s.day === day && gel(s) && isCash(s.payment)).reduce((a, s) => a + (+s.total || 0), 0);
+  const rentsToday = S.rentals.filter(r => r.day === day && r.status !== 'cancelled');
+  const rentFees = rentsToday.filter(r => isCash(r.payment)).reduce((a, r) => a + (+r.price || 0), 0);
+  const late = S.rentals.filter(r => +r.late_fee && isCash(r.late_payment) && r.returned_at && dayKey(new Date(r.returned_at)) === day).reduce((a, r) => a + (+r.late_fee || 0), 0);
+  const depCash = r => +r.deposit && isCash(r.deposit_payment) && (r.deposit_currency || 'GEL') === 'GEL';
+  const depIn = S.rentals.filter(r => r.day === day && depCash(r)).reduce((a, r) => a + (+r.deposit || 0), 0);
+  const backAt = r => r.returned_at || r.cancelled_at;
+  const depOut = S.rentals.filter(r => depCash(r) && r.status !== 'active' && backAt(r) && dayKey(new Date(backAt(r))) === day).reduce((a, r) => a + (+r.deposit || 0), 0);
+  const exp = S.fin.expenses.filter(x => x.day === day && gel(x) && isCash(x.payment)).reduce((a, x) => a + (+x.amount || 0), 0);
+  const opening = +S.fin.cash?.opening || 0;
+  return { opening, sales, rentFees, late, depIn, depOut, exp, expected:r2(opening + sales + rentFees + late + depIn - depOut - exp) };
+}
+function finRange(){ return [$('fn-from').value || '0000', $('fn-to').value || '9999']; }
+function renderFin(){
+  if (S.fin.ready === null) { $('fn-body').innerHTML = `<div class="empty">${esc(t('loading'))}</div>`; loadFin().then(() => S.tab === 'fin' && renderFin()); return; }
+  if (!S.fin.ready) { $('fn-body').innerHTML = `<div class="panel pad small">${esc(t('fin_need_db'))}</div>`; return; }
+  if (!$('fn-from').value) { const n = new Date(); $('fn-from').value = dayKey(new Date(n.getFullYear(), n.getMonth(), 1)); $('fn-to').value = dayKey(n); }
+  const today = dayKey(new Date()), [a, b] = finRange(), inR = x => x.day >= a && x.day <= b;
+  const parts = [];
+  if (isAdmin()) parts.push(dashHtml(a, b, inR));
+  parts.push(cashHtml(today));
+  parts.push(expHtml(inR));
+  if (isAdmin()) parts.push(movesHtml());
+  $('fn-body').innerHTML = parts.join('');
+}
+function tile(k, v, cls = '', sub = ''){ return `<div class="panel stat ${cls}"><h3>${esc(t(k))}</h3><div class="v num">${v}</div>${sub ? `<div class="small muted">${sub}</div>` : ''}</div>`; }
+function dashHtml(a, b, inR){
+  const sales = S.sales.filter(inR), rents = S.rentals.filter(r => inR(r) && r.status !== 'cancelled'), exps = S.fin.expenses.filter(inR);
+  const rev = sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {});
+  const rentRev = rents.reduce((s, r) => s + rentSum(r), 0);
+  const expSum = exps.reduce((acc, x) => addCur(acc, x.currency, x.amount), {});
+  const net = r2((rev.GEL || 0) + rentRev - (expSum.GEL || 0));
+  const active = S.rentals.filter(r => r.status === 'active');
+  const held = active.reduce((acc, r) => +r.deposit ? addCur(acc, r.deposit_currency || 'GEL', r.deposit) : acc, {});
+  const overdue = active.filter(r => r.ends_at && new Date(r.ends_at) < new Date());
+  const inStock = S.products.filter(p => +p.qty > 0);
+  const val = inStock.reduce((s, p) => s + (+p.price || 0) * (+p.qty || 0), 0);
+  const vehN = inStock.filter(p => !isEasy(p)).reduce((s, p) => s + (+p.qty || 0), 0);
+  const low = S.products.filter(p => isEasy(p) && +p.qty === 1);
+  const noPrice = inStock.filter(p => !+p.price).length;
+  return `<div class="stats">${tile('rs_sales_rev', moneyMulti(rev))}${tile('rs_rent_rev', money(rentRev))}${tile('fin_expenses', moneyMulti(expSum))}${tile('fin_net', money(net), net < 0 ? 'neg' : '', esc(t('fin_net_hint')))}</div>
+  <div class="stats">${tile('fin_dep_held', moneyMulti(held), '', esc(t('fin_dep_hint')) + ' · ' + active.filter(r => +r.deposit).length)}${tile('fin_overdue', String(overdue.length), overdue.length ? 'neg' : '')}${tile('fin_stock_val', money(val), '', `${vehN} ${esc(t('kind_veh'))}${noPrice ? ' · ' + noPrice + ' ' + esc(t('fin_no_price')) : ''}`)}${tile('fin_low', String(low.length))}</div>
+  ${overdue.length ? `<div class="panel"><div class="pad"><h3>${esc(t('fin_overdue'))}</h3></div><div class="tw"><table><tbody>${overdue.map(r => `<tr><td>${esc(r.unit_label || '')}</td><td>${esc(r.customer_name || '')} <span class="muted small">${esc(r.phone || '')}</span></td><td class="num"><span class="due late">${fmtTs(r.ends_at)}</span></td><td class="r num">${+r.deposit ? money(r.deposit, r.deposit_currency) : ''}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+  ${low.length ? `<div class="panel"><div class="pad"><h3>${esc(t('fin_low'))}</h3></div><div class="pad small">${low.map(p => `<span class="tag low">${esc(p.code ? p.code + ' · ' : '')}${esc(pName(p))}</span>`).join(' ')}</div></div>` : ''}
+  <div class="panel pad row" style="gap:8px;flex-wrap:wrap"><b style="margin-right:auto">${esc(t('fin_export'))}</b>
+    <button type="button" class="btn small" data-csv="sales">⬇ ${esc(t('tab_sale'))}</button><button type="button" class="btn small" data-csv="rentals">⬇ ${esc(t('tab_rent'))}</button><button type="button" class="btn small" data-csv="expenses">⬇ ${esc(t('fin_expenses'))}</button></div>`;
+}
+function cashHtml(today){
+  const c = S.fin.cash, f = cashFlow(today);
+  const rows = [['fin_opening', f.opening], ['fin_cash_sales', f.sales], ['fin_cash_rent', f.rentFees], ['fin_cash_late', f.late], ['fin_dep_in', f.depIn], ['fin_dep_out', -f.depOut], ['fin_cash_exp', -f.exp]];
+  const tbl = `<dl class="specs">${rows.map(([k, v]) => `<dt>${esc(t(k))}</dt><dd class="num">${money(v)}</dd>`).join('')}<dt><b>${esc(t('fin_expected'))}</b></dt><dd class="num"><b>${money(f.expected)}</b></dd></dl>`;
+  let body;
+  if (!c) body = `<p class="small muted" style="margin:0">${esc(t('fin_cash_closed_hint'))}</p>
+    <div class="row" style="gap:8px;flex-wrap:nowrap"><input id="fn-open-amt" type="number" min="0" step="0.01" inputmode="decimal" placeholder="${esc(t('fin_opening'))}"><button type="button" class="btn primary" id="fn-open">${esc(t('fin_open'))}</button></div>`;
+  else if (!c.closed_at) body = `<div class="small muted">${esc(t('fin_opened'))} ${fmtTs(c.opened_at)} · ${esc(c.opened_by || '')}</div>${tbl}
+    <div class="row" style="gap:8px;flex-wrap:nowrap"><input id="fn-count" type="number" min="0" step="0.01" inputmode="decimal" placeholder="${esc(t('fin_counted'))}"><button type="button" class="btn primary" id="fn-close">${esc(t('fin_close'))}</button></div>
+    <input id="fn-cnote" placeholder="${esc(t('note'))}">`;
+  else body = `<div class="small muted">${esc(t('fin_closed_at'))} ${fmtTs(c.closed_at)} · ${esc(c.closed_by || '')}</div>
+    <dl class="specs"><dt>${esc(t('fin_expected'))}</dt><dd class="num">${money(c.expected)}</dd><dt>${esc(t('fin_counted'))}</dt><dd class="num">${money(c.counted)}</dd><dt><b>${esc(t('fin_diff'))}</b></dt><dd class="num"><b style="color:${+c.difference < 0 ? 'var(--danger)' : +c.difference > 0 ? 'var(--warn)' : 'var(--green)'}">${money(c.difference)}</b></dd></dl>
+    ${c.note ? `<div class="small">${esc(c.note)}</div>` : ''}${isAdmin() ? `<button type="button" class="btn ghost small" id="fn-reopen">${esc(t('fin_reopen'))}</button>` : ''}`;
+  return `<div class="panel pad stack"><div class="row between"><h3 style="margin:0">💵 ${esc(t('fin_cash'))} · <span class="num">${today}</span></h3><span class="tag ${c && !c.closed_at ? '' : 'out'}">${esc(t(!c ? 'fin_not_open' : c.closed_at ? 'fin_closed' : 'fin_is_open'))}</span></div>${body}</div>`;
+}
+function expHtml(inR){
+  const list = S.fin.expenses.filter(inR);
+  const byCat = {}; list.forEach(x => { if (gel(x)) byCat[x.category] = (byCat[x.category] || 0) + (+x.amount || 0); });
+  return `<div class="panel pad stack"><h3 style="margin:0">${esc(t('fin_add_exp'))}</h3>
+    <div class="formgrid"><label class="f">${esc(t('col_amount'))}<input id="fe-amt" type="number" min="0.01" step="0.01" inputmode="decimal"></label>
+      <label class="f">${esc(t('fin_cat'))}<select id="fe-cat">${EXP_CATS.map(k => `<option value="${k}">${esc(t('ec_' + k))}</option>`).join('')}</select></label>
+      <label class="f">${esc(t('payment'))}<select id="fe-pay">${['cash','card','transfer'].map(k => `<option value="${k}">${esc(tPay(k))}</option>`).join('')}</select></label>
+      <label class="f">${esc(t('note'))}<input id="fe-note" maxlength="300"></label></div>
+    <button type="button" class="btn primary" id="fe-save">${esc(t('save'))}</button></div>
+  <div class="panel"><div class="pad row between"><h3 style="margin:0">${esc(t('fin_expenses'))}</h3><span class="small muted">${Object.entries(byCat).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${esc(t('ec_' + k))} <b class="num">${money(v)}</b>`).join(' · ')}</span></div>
+  ${list.length ? `<div class="tw"><table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('fin_cat'))}</th><th>${esc(t('note'))}</th><th>${esc(t('payment'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${list.map(x => `<tr data-id="${x.id}"><td class="num">${fmtTs(x.created_at)}</td><td>${esc(t('ec_' + x.category))}</td><td>${esc(x.note || '')}</td><td>${esc(tPay(x.payment))}</td><td>${esc(x.seller || '')}</td><td class="r num"><b>${money(x.amount, x.currency)}</b></td><td>${isAdmin() ? `<button type="button" class="btn ghost small danger" data-del-exp="${x.id}">${esc(t('remove'))}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty small">${esc(t('no_records'))}</div>`}</div>`;
+}
+function movesHtml(){
+  const m = S.fin.moves || [];
+  return `<div class="panel"><div class="pad"><h3 style="margin:0">${esc(t('fin_moves'))}</h3></div>${m.length ? `<div class="tw"><table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('sp_item'))}</th><th class="r">±</th><th class="r">${esc(t('in_stock_label'))}</th><th>${esc(t('sr_reason'))}</th><th></th></tr></thead><tbody>${m.map(x => `<tr><td class="num">${fmtTs(x.at)}</td><td>${esc(x.product || '')}</td><td class="r num" style="color:${x.delta < 0 ? 'var(--danger)' : 'var(--green)'}">${x.delta > 0 ? '+' : ''}${x.delta}</td><td class="r num">${x.qty_after ?? ''}</td><td>${esc(t('sr_' + x.reason) || x.reason)}${x.note ? ` <span class="small muted">${esc(x.note)}</span>` : ''}</td><td class="small muted">${esc(S.staff.find(y => y.email === x.email)?.name || String(x.email || '').replace(/@.*/, ''))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty small">${esc(t('no_records'))}</div>`}</div>`;
+}
+/* CSV — UTF-8 with BOM so Excel shows Georgian correctly */
+function csvOf(rows){ const cell = v => { const s = v == null ? '' : String(v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }; return '\ufeff' + rows.map(r => r.map(cell).join(',')).join('\r\n'); }
+function exportCsv(kind){
+  const [a, b] = finRange(), inR = x => x.day >= a && x.day <= b; let rows;
+  if (kind === 'sales') rows = [['date','time','items','qty','list_total','discount','total','currency','payment','seller','customer','phone','note','id'],
+    ...S.sales.filter(inR).map(s => [s.day, fmtTs(s.created_at), (s.lines || []).map(l => l.name + (l.qty > 1 ? ' x' + l.qty : '')).join(' | '), (s.lines || []).reduce((n, l) => n + (+l.qty || 0), 0), s.list_total, s.extra_discount, s.total, s.currency || 'GEL', s.payment, s.seller, s.customer_name, s.phone, s.note, s.id])];
+  else if (kind === 'rentals') rows = [['date','start','return_by','returned_at','status','type','unit','customer','phone','price','late_fee','payment','deposit','deposit_currency','deposit_payment','seller','id'],
+    ...S.rentals.filter(inR).map(r => [r.day, fmtTs(r.created_at), r.ends_at ? fmtTs(r.ends_at) : '', r.returned_at ? fmtTs(r.returned_at) : '', r.status, r.type, r.unit_label, r.customer_name, r.phone, r.price, r.late_fee, r.payment, r.deposit, r.deposit_currency, r.deposit_payment, r.seller, r.id])];
+  else rows = [['date','time','category','amount','currency','payment','note','seller','created_by','id'],
+    ...S.fin.expenses.filter(inR).map(x => [x.day, fmtTs(x.created_at), x.category, x.amount, x.currency, x.payment, x.note, x.seller, x.created_by, x.id])];
+  downloadBlob(new Blob([csvOf(rows)], { type:'text/csv;charset=utf-8' }), `easyride-${kind}-${a === '0000' ? 'all' : a}_${b === '9999' ? 'all' : b}.csv`);
+}
+$('fn-from').onchange = $('fn-to').onchange = () => renderFin();
+$('fn-refresh').onclick = async () => { await Promise.all([reload('sales', 'rentals', 'products'), loadFin()]); renderFin(); };
+$('fn-body').onclick = async e => {
+  const cv = e.target.closest('[data-csv]'); if (cv) return exportCsv(cv.dataset.csv);
+  const del = e.target.closest('[data-del-exp]');
+  if (del) return arm(del, async () => { try { await q(sb.from('expenses').delete().eq('id', del.dataset.delExp)); toast(t('deleted')); await loadFin(); renderFin(); } catch(err){ fail(err); } });
+  const id = e.target.id, btn = e.target.closest('button'); if (!btn) return;
+  try {
+    if (id === 'fe-save') {
+      const amt = r2($('fe-amt').value); if (!(amt > 0)) { toast(t('fin_need_amt')); return; }
+      if ($('fe-cat').value === 'other' && !$('fe-note').value.trim()) { toast(t('sr_need_note')); return; }
+      btn.disabled = true;
+      await q(sb.from('expenses').insert({ amount:amt, category:$('fe-cat').value, payment:$('fe-pay').value, note:$('fe-note').value.trim(), seller:S.user?.name || '' }));
+      toast(t('saved') + ' · ' + money(amt)); await loadFin(); renderFin();
+    } else if (id === 'fn-open') {
+      const v = $('fn-open-amt').value; if (v === '' || +v < 0) { toast(t('fin_need_amt')); return; }
+      btn.disabled = true; await q(sb.rpc('cash_open', { p_opening:r2(v), p_note:'' })); await loadFin(); renderFin();
+    } else if (id === 'fn-close') {
+      const v = $('fn-count').value; if (v === '' || +v < 0) { toast(t('fin_need_amt')); return; }
+      btn.disabled = true; await reload('sales', 'rentals'); await loadFin();
+      await q(sb.rpc('cash_close', { p_counted:r2(v), p_expected:cashFlow(dayKey(new Date())).expected, p_note:$('fn-cnote').value.trim() }));
+      await loadFin(); renderFin();
+    } else if (id === 'fn-reopen') { await q(sb.rpc('cash_reopen')); await loadFin(); renderFin(); }
+  } catch(err){ fail(err); btn.disabled = false; }
+};
+/* stock change with a reason: received, write-off, damaged, correction … (kept in stock_moves) */
+function openStockAdjust(p, sign){
+  openOv(`<h2>${esc(pName(p))}</h2><div class="small muted">${esc(t('in_stock_label'))}: <b class="num">${+p.qty || 0}</b></div>
+    <div class="formgrid"><label class="f">${esc(t('sr_delta'))}<input id="sa-n" type="number" step="1" inputmode="numeric" value="${sign > 0 ? 1 : -1}"></label>
+    <label class="f">${esc(t('sr_reason'))}<select id="sa-r">${STOCK_REASONS.map(k => `<option value="${k}" ${k === (sign > 0 ? 'received' : 'writeoff') ? 'selected' : ''}>${esc(t('sr_' + k))}</option>`).join('')}</select></label>
+    <label class="f" style="grid-column:1/-1">${esc(t('note'))}<input id="sa-note" maxlength="300"></label></div>
+    <div class="row" style="gap:8px"><button type="button" class="btn primary" id="sa-ok" style="flex:1">${esc(t('save'))}</button><button type="button" class="btn" data-close>${esc(t('cancel'))}</button></div>`);
+  $('sa-ok').onclick = async () => {
+    const d = Math.trunc(+$('sa-n').value || 0), reason = $('sa-r').value, note = $('sa-note').value.trim();
+    if (!d) { toast(t('sr_need_delta')); return; }
+    if ((+p.qty || 0) + d < 0) { toast(t('sr_negative')); return; }
+    if (reason === 'other' && !note) { toast(t('sr_need_note')); return; }
+    $('sa-ok').disabled = true;
+    try {
+      try { await q(sb.rpc('adjust_stock', { p_id:p.id, p_delta:d, p_reason:reason, p_note:note })); }
+      catch(e){ if (!missingFn(e)) throw e; await q(sb.from('products').update({ qty:(+p.qty || 0) + d, updated_at:new Date().toISOString() }).eq('id', p.id)); }
+      closeOv(); toast(t('saved')); S.fin.ready = null; await reload('products');
+    } catch(err){ fail(err); $('sa-ok').disabled = false; }
+  };
+}
+
 /* ================= render ================= */
-function render(){ if (!S.user) return; ({ sale:renderSale, stock:renderStock, rent:renderRent, customers:renderCustomers, report:renderReport, settings:renderSettings })[S.tab](); }
+function render(){ if (!S.user) return; ({ sale:renderSale, stock:renderStock, rent:renderRent, customers:renderCustomers, report:renderReport, fin:renderFin, settings:renderSettings })[S.tab](); }
 function renderAll(){
   applyI18n(); buildTabs();
   $('who-name').textContent = S.user?.name || '';
