@@ -78,5 +78,54 @@ window.ER_REPORT = (function () {
     const blocks = langs.filter(l => W[l]).map(lg => `${FLAG[lg]}\n${kind === 'rental' ? rental(lg, data) : sale(lg, data)}`);
     return `${HEAD}\n\n${blocks.join('\n\n')}`;
   }
-  return { build, FLAG, langs: Object.keys(W) };
+
+  /* end-of-day report, the same layout the team posts in the WhatsApp group every morning
+     d: { date, items:[{pay, amount, name}], cash, card, transfer, inst, total, depStart, depIn, depOut, depEnd (strings),
+          exp:[{amount, name}], expCash, opening, bank, closing, working, cardTotal, note, money(n) } */
+  const D = {
+    ka: { title: x => `📅 ${x} — დღის დახურვის ანგარიში`, sales: 'გაყიდვები', cash: 'ნაღდი ანგარიშსწორება', card: 'ბარათით გადახდა', transfer: 'საბანკო გადმორიცხვა', inst: 'განვადება',
+      cashSum: 'ნაღდი გაყიდვები სულ', cardSum: 'ბარათით სულ', trSum: 'გადმორიცხვით სულ', total: 'გაყიდვები სულ', none: 'გაყიდვები არ ყოფილა',
+      deps: 'დეპოზიტები', depStart: 'საწყისი დეპოზიტი', depIn: 'მიღებული დეპოზიტი', depOut: 'დაბრუნებული დეპოზიტი', depEnd: 'დღის ბოლოს შენახვაში არსებული დეპოზიტი',
+      exps: 'ხარჯები', exp: 'ნაღდი ხარჯი', close: '📊 დღის დახურვა', opening: 'საწყისი სალარო (მხოლოდ ქეში)', daily: 'დღიური გაყიდვები', cashSales: 'ნაღდი გაყიდვები',
+      bank: 'TT JAPAN-ის საბანკო ანგარიშზე შეტანილი', closing: 'დღის ბოლოს სალაროში (მხოლოდ ქეში)', working: 'სამუშაო სალაროში თანხა', cardTotal: 'ჯამში ბარათით მიღებული', note: 'შენიშვნა', by: 'რეპორტი გაგზავნა' },
+    en: { title: x => `📅 ${x} — End of Day Report`, sales: 'Sales', cash: 'Cash payment', card: 'Card payment', transfer: 'Bank transfer', inst: 'Installment',
+      cashSum: 'Total cash sales', cardSum: 'Total card', trSum: 'Total transfer', total: 'Total sales', none: 'No sales',
+      deps: 'Deposits', depStart: 'Opening deposits', depIn: 'Deposits received', depOut: 'Deposits returned', depEnd: 'Deposits held at end of day',
+      exps: 'Expenses', exp: 'Cash expense', close: '📊 Day closing', opening: 'Opening cash (cash only)', daily: 'Daily sales', cashSales: 'Cash sales',
+      bank: 'Deposited to the TT JAPAN bank account', closing: 'Cash at end of day (cash only)', working: 'Working register', cardTotal: 'Total received by card', note: 'Note', by: 'Sent by' },
+    ru: { title: x => `📅 ${x} — Отчёт о закрытии дня`, sales: 'Продажи', cash: 'Наличные', card: 'Карта', transfer: 'Банковский перевод', inst: 'Рассрочка',
+      cashSum: 'Наличные продажи всего', cardSum: 'Картой всего', trSum: 'Переводом всего', total: 'Продажи всего', none: 'Продаж не было',
+      deps: 'Депозиты', depStart: 'Депозиты на начало', depIn: 'Получено депозитов', depOut: 'Возвращено депозитов', depEnd: 'Депозиты на хранении на конец дня',
+      exps: 'Расходы', exp: 'Расход наличными', close: '📊 Закрытие дня', opening: 'Касса на начало (только наличные)', daily: 'Продажи за день', cashSales: 'Наличные продажи',
+      bank: 'Внесено на банковский счёт TT JAPAN', closing: 'Касса на конец дня (только наличные)', working: 'Рабочая касса', cardTotal: 'Всего получено картой', note: 'Примечание', by: 'Отправил' },
+    ja: { title: x => `📅 ${x.split('.').reverse().join('年').replace(/年(\d+)年(\d+)$/, '年$1月$2日')} — 営業終了報告`, sales: '売上', cash: '現金支払い', card: 'カード支払い', transfer: '銀行振込', inst: '分割払い',
+      cashSum: '現金売上合計', cardSum: 'カード合計', trSum: '振込合計', total: '売上合計', none: '売上なし',
+      deps: 'デポジット', depStart: '開始時のデポジット', depIn: '受け取ったデポジット', depOut: '返金したデポジット', depEnd: '営業終了時点で保管中のデポジット',
+      exps: '経費', exp: '現金経費', close: '📊 営業終了報告', opening: '開始時のレジ現金（現金のみ）', daily: '本日の売上合計', cashSales: '現金売上',
+      bank: 'TT JAPANの銀行口座への入金', closing: '営業終了時のレジ現金（現金のみ）', working: '業務用レジ現金', cardTotal: 'カード決済累計', note: '備考', by: '送信者' }
+  };
+  const DAYKEY = { cash: 'cash', card: 'card', transfer: 'transfer', installment: 'inst' };
+  function dayOne(lg, d) {
+    const w = D[lg], m = d.money, out = [w.title(d.date), '', w.sales, ''];
+    if (!d.items.length) out.push(`* ${w.none}`);
+    d.items.forEach(it => out.push(`* ${w[DAYKEY[it.pay] || 'cash']}: ${m(it.amount)}${it.name ? ` — ${it.name}` : ''}`));
+    out.push(`* ${w.cashSum}: ${m(d.cash)}`);
+    if (d.card) out.push(`* ${w.cardSum}: ${m(d.card)}`);
+    if (d.transfer) out.push(`* ${w.trSum}: ${m(d.transfer)}`);
+    out.push(`* ${w.total}: ${m(d.total)}`, '', w.deps, '',
+      `* ${w.depStart}: ${d.depStart}`, `* ${w.depIn}: ${d.depIn}`, `* ${w.depOut}: ${d.depOut}`, `* ${w.depEnd}: ${d.depEnd}`);
+    if (d.exp.length) { out.push('', w.exps, ''); d.exp.forEach(x => out.push(`* ${w.exp}: ${m(x.amount)}${x.name ? ` — ${x.name}` : ''}`)); }
+    out.push('', w.close, '', `* ${w.opening}: ${m(d.opening)}`, `* ${w.daily}: ${m(d.total)}`, `* ${w.cashSales}: ${m(d.cash)}`);
+    if (d.bank) out.push(`* ${w.bank}: ${m(d.bank)}`);
+    if (d.expCash) out.push(`* ${w.exp}: ${m(d.expCash)}`);
+    out.push(`* ${w.closing}: ${m(d.closing)}`, `* ${w.working}: ${m(d.working)}`, `* ${w.cardTotal}: ${m(d.cardTotal)}`);
+    if (d.note) out.push('', `${w.note}: ${d.note}`);
+    if (d.by) out.push('', `${w.by}: ${d.by}`);
+    return out.join('\n');
+  }
+  function day(d, langs) {
+    const ls = langs.filter(l => D[l]);
+    return ls.map((lg, i) => (ls.length > 1 ? `${FLAG[lg]}\n\n` : '') + dayOne(lg, d)).join('\n\n⸻\n\n');
+  }
+  return { build, day, FLAG, langs: Object.keys(W) };
 })();

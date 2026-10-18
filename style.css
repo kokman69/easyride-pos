@@ -743,3 +743,9 @@ nav#tabs button[aria-selected="true"]{box-shadow:inset 3px 0 0 var(--orange)}
 #fn-body .stats{margin:0}
 #fn-body .specs dd{text-align:right}
 #v-fin input[type=date]{min-width:0}
+
+/* v31 morning day-report bar */
+.daybar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;padding:12px 14px;margin:0 0 12px;border-radius:14px;background:var(--orange-soft, rgba(255,210,0,.14));border:1px solid var(--orange, #FFD200);font-weight:600}
+.daybar.ok{background:var(--green-soft);border-color:transparent;color:var(--green);font-weight:500}
+.daybar span{flex:1;min-width:200px}
+.daybar .btn.primary{white-space:nowrap}

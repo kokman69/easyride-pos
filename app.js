@@ -136,7 +136,7 @@ function subscribeLive(){
   TABLES.filter(tb => tb !== 'staff').forEach(tb => channel.on('postgres_changes', { event:'*', schema:'public', table:tb }, () => scheduleReload(tb)));
   channel.subscribe();
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && S.user) reload(...TABLES); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.user) { reload(...TABLES); loadDayReps().then(renderDayBanner); } });
 window.addEventListener('offline', () => { $('banner').textContent = t('offline'); $('banner').hidden = false; });
 window.addEventListener('online', () => { $('banner').hidden = true; if (S.user) reload(...TABLES); });
 
@@ -229,6 +229,7 @@ async function afterLogin(){
   $('gate').hidden = true; $('app').hidden = false;
   S.tab = 'sale'; renderAll();
   await reload(...TABLES);
+  loadDayReps().then(renderDayBanner);
   subscribeLive();
 }
 function showGate(){ S.user = null; S.cart = []; LOGIN = null; $('app').hidden = true; $('gate').hidden = false; renderGate(); }
@@ -738,6 +739,7 @@ const pcardHtml = p => { const left = leftOf(p);
         ${p.note ? `<span class="meta" style="color:var(--warn)">${esc(p.note)}</span>` : ''}
         <span class="pr"><span class="num">${+p.price ? money(p.price) : esc(t('negotiable'))}</span>${tag}</span></div></div>`; };
 function renderSale(){
+  renderDayBanner();
   if (isSimple()) renderSimplePick();
   const kind = saleKind(), easy = kind === 'easy';
   $('s-kind').innerHTML = [['all','kind_all'],['veh','kind_veh'],['easy','kind_items']].map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${kind === k}">${esc(t(l))} <span class="num">${S.products.filter(p => inSaleKind(p, k)).length}</span></button>`).join('');
@@ -1956,7 +1958,8 @@ function cashHtml(today){
   else body = `<div class="small muted">${esc(t('fin_closed_at'))} ${fmtTs(c.closed_at)} · ${esc(c.closed_by || '')}</div>
     <dl class="specs"><dt>${esc(t('fin_expected'))}</dt><dd class="num">${money(c.expected)}</dd><dt>${esc(t('fin_counted'))}</dt><dd class="num">${money(c.counted)}</dd><dt><b>${esc(t('fin_diff'))}</b></dt><dd class="num"><b style="color:${+c.difference < 0 ? 'var(--danger)' : +c.difference > 0 ? 'var(--warn)' : 'var(--green)'}">${money(c.difference)}</b></dd></dl>
     ${c.note ? `<div class="small">${esc(c.note)}</div>` : ''}${isAdmin() ? `<button type="button" class="btn ghost small" id="fn-reopen">${esc(t('fin_reopen'))}</button>` : ''}`;
-  return `<div class="panel pad stack"><div class="row between"><h3 style="margin:0">💵 ${esc(t('fin_cash'))} · <span class="num">${today}</span></h3><span class="tag ${c && !c.closed_at ? '' : 'out'}">${esc(t(!c ? 'fin_not_open' : c.closed_at ? 'fin_closed' : 'fin_is_open'))}</span></div>${body}</div>`;
+  return `<div class="panel pad stack"><div class="row between"><h3 style="margin:0">💵 ${esc(t('fin_cash'))} · <span class="num">${today}</span></h3><span class="tag ${c && !c.closed_at ? '' : 'out'}">${esc(t(!c ? 'fin_not_open' : c.closed_at ? 'fin_closed' : 'fin_is_open'))}</span></div>${body}
+    <button type="button" class="btn" data-dayrep="">📤 ${esc(t('day_title'))}</button></div>`;
 }
 function expHtml(inR){
   const list = S.fin.expenses.filter(inR);
@@ -2029,6 +2032,113 @@ function openStockAdjust(p, sign){
       catch(e){ if (!missingFn(e)) throw e; await q(sb.from('products').update({ qty:(+p.qty || 0) + d, updated_at:new Date().toISOString() }).eq('id', p.id)); }
       closeOv(); toast(t('saved')); S.fin.ready = null; await reload('products');
     } catch(err){ fail(err); $('sa-ok').disabled = false; }
+  };
+}
+
+/* ================= morning: yesterday's end-of-day report = a new work day starts ================= */
+S.dayRep = { ready:null, last:null, list:[] };
+async function loadDayReps(){
+  try { S.dayRep.list = await q(sb.from('day_reports').select('*').order('day', { ascending:false }).limit(40)) || []; S.dayRep.last = S.dayRep.list[0] || null; S.dayRep.ready = true; }
+  catch(e){ S.dayRep.ready = false; if (!missingFn(e)) console.error(e); }
+}
+const dayShift = (k, n) => { const [y, m, d] = k.split('-').map(Number); return dayKey(new Date(y, m - 1, d + n)); };
+const ddmm = k => k.split('-').reverse().join('.');
+const repOf = k => S.dayRep.list.find(r => r.day === k);
+/* every number of one day, worked out from the records (deposits apart from sales) */
+function dayFigures(day){
+  const items = [], add = (pay, amount, name) => { if (+amount) items.push({ pay: pay || 'cash', amount:r2(amount), name }); };
+  S.sales.filter(s => s.day === day && gel(s)).forEach(s => add(s.payment, s.total, (s.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join(', ')));
+  S.rentals.filter(r => r.day === day && r.status !== 'cancelled').forEach(r => add(r.payment, r.price, `${t('tab_rent')} · ${r.unit_label || tType(r.type)}`));
+  S.rentals.filter(r => +r.late_fee && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.late_payment, r.late_fee, `${t('late_fee')} · ${r.unit_label || ''}`));
+  const sum = p => r2(items.filter(i => p(i.pay)).reduce((a, i) => a + i.amount, 0));
+  const cash = sum(p => p === 'cash'), card = sum(p => p === 'card'), transfer = sum(p => p === 'transfer'), total = sum(() => true);
+  // deposits per currency: held at the start, received, returned, held at the end
+  const back = r => r.returned_at || r.cancelled_at, bd = r => back(r) ? dayKey(new Date(back(r))) : null;
+  const dep = { start:{}, in:{}, out:{}, end:{} }, cur = r => r.deposit_currency || 'GEL';
+  S.rentals.filter(r => +r.deposit).forEach(r => {
+    const c = cur(r), v = +r.deposit, open = r.status === 'active', b = bd(r);
+    if (r.day < day && (open || (b && b >= day))) dep.start[c] = (dep.start[c] || 0) + v;
+    if (r.day === day) dep.in[c] = (dep.in[c] || 0) + v;
+    if (!open && b === day) dep.out[c] = (dep.out[c] || 0) + v;
+    if (r.day <= day && (open || (b && b > day))) dep.end[c] = (dep.end[c] || 0) + v;
+  });
+  const exp = (S.fin.expenses || []).filter(x => x.day === day && gel(x) && isCash(x.payment)).map(x => ({ amount:+x.amount, name:t('ec_' + x.category) + (x.note ? ' · ' + x.note : '') }));
+  return { items, cash, card, transfer, total, dep, exp, expCash:r2(exp.reduce((a, x) => a + x.amount, 0)) };
+}
+const depStr = acc => { const ks = Object.keys(acc).filter(k => acc[k]); return ks.length ? ks.map(k => `${r2(acc[k]).toLocaleString('en-US')} ${k}`).join(' / ') : '0 GEL'; };
+const gelStr = n => `${r2(n).toLocaleString('en-US')} GEL`;
+function dayLangs(){ try { const v = JSON.parse(ls.get('er-day-langs') || 'null'); if (Array.isArray(v) && v.length) return v; } catch(e){} return ['ka', 'en', 'ja']; }
+/* the morning banner on the sale screen: yesterday's report not sent yet → one big button */
+function renderDayBanner(){
+  const el = $('day-banner'); if (!el) return;
+  if (!S.user || S.dayRep.ready !== true) { el.hidden = true; return; }
+  const today = dayKey(new Date()), y = dayShift(today, -1), sent = repOf(y);
+  if (sent) { el.hidden = false; el.className = 'daybar ok';
+    el.innerHTML = `<span>✅ ${esc(t('day_started'))} · ${fmtTs(sent.sent_at)}${sent.seller ? ' · ' + esc(sent.seller) : ''}</span><button type="button" class="btn ghost small" data-dayrep="${y}">${esc(t('day_resend'))}</button>`; return; }
+  el.hidden = false; el.className = 'daybar';
+  el.innerHTML = `<span>☀️ ${esc(t('day_not_sent').replace('{d}', ddmm(y)))}</span><button type="button" class="btn primary" data-dayrep="${y}">📤 ${esc(t('day_send_btn'))}</button>`;
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-dayrep]'); if (b) openDayReport(b.dataset.dayrep); });
+async function openDayReport(day){
+  day = day || dayShift(dayKey(new Date()), -1);
+  openOv(`<div class="empty">${esc(t('loading'))}</div>`, 'wide');
+  await Promise.all([reload('sales', 'rentals'), loadDayReps(), S.fin.ready ? null : loadFin()]);
+  if (S.dayRep.ready !== true) { openOv(`<div class="row between"><h2>${esc(t('day_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div><p>${esc(t('fin_need_db'))}</p>`); return; }
+  // the report of the day before gives the opening cash, the working register and the running card total
+  const prev = S.dayRep.list.find(r => r.day < day), mine = repOf(day), pd = prev?.data || {}, md = mine?.data || {};
+  let langs = dayLangs();
+  const f0 = dayFigures(day);
+  const val = (k, d) => md[k] ?? d;
+  openOv(`<div class="row between"><h2>📤 ${esc(t('day_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    ${mine ? `<div class="okbox small">✅ ${esc(t('day_already'))} ${fmtTs(mine.sent_at)}${mine.seller ? ' · ' + esc(mine.seller) : ''}</div>` : ''}
+    <div class="formgrid">
+      <label class="f">${esc(t('day_date'))}<input id="dr-day" type="date" value="${day}" max="${dayKey(new Date())}"></label>
+      <label class="f">${esc(t('fin_opening'))}<input id="dr-open" type="number" step="0.01" inputmode="decimal" value="${val('opening_cash', pd.closing_cash ?? 0)}"></label>
+      <label class="f">${esc(t('day_bank'))}<input id="dr-bank" type="number" step="0.01" min="0" inputmode="decimal" value="${val('bank_deposit', 0)}"></label>
+      <label class="f">${esc(t('day_working'))}<input id="dr-work" type="number" step="0.01" min="0" inputmode="decimal" value="${val('working_cash', pd.working_cash ?? 91)}"></label>
+      <label class="f">${esc(t('day_card_total'))}<input id="dr-cardt" type="number" step="0.01" min="0" inputmode="decimal" value="${val('card_total', r2((+pd.card_total || 0) + f0.card))}"></label>
+      <label class="f">${esc(t('note'))}<input id="dr-note" maxlength="500" value="${esc(md.note || '')}"></label>
+    </div>
+    ${prev ? `<div class="small muted">${esc(t('day_prev'))}: ${ddmm(prev.day)} · ${esc(t('fin_opening'))} → ${gelStr(pd.closing_cash || 0)}</div>` : ''}
+    <div class="langpick" id="dr-langs">${window.ER_REPORT.langs.map(k => `<button type="button" class="chip" data-l="${k}"></button>`).join('')}</div>
+    <textarea id="dr-text" class="reptext" rows="16" spellcheck="false"></textarea>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn primary big" id="dr-send" style="flex:2;width:auto">📤 ${esc(t('day_send_start'))}</button>
+      <button type="button" class="btn big" id="dr-copy" style="flex:1;width:auto">${esc(t('copy'))}</button></div>
+    <div class="small muted">${esc(t('day_hint'))}</div>`, 'wide');
+  let edited = false;
+  const figures = () => {
+    const d = $('dr-day').value || day, f = dayFigures(d), num = id => r2($(id).value);
+    const closing = r2(num('dr-open') + f.cash - num('dr-bank') - f.expCash);
+    return { d, f, data:{ opening_cash:num('dr-open'), closing_cash:closing, bank_deposit:num('dr-bank'), working_cash:num('dr-work'), card_total:num('dr-cardt'),
+      cash:f.cash, card:f.card, transfer:f.transfer, total:f.total, exp_cash:f.expCash, dep_end:f.dep.end, note:$('dr-note').value.trim() } };
+  };
+  const paint = () => {
+    $('dr-langs').querySelectorAll('[data-l]').forEach(b => { b.textContent = window.ER_REPORT.FLAG[b.dataset.l]; b.setAttribute('aria-pressed', langs.includes(b.dataset.l)); });
+    if (edited) return;
+    const { d, f, data } = figures();
+    $('dr-text').value = window.ER_REPORT.day({ date:ddmm(d), items:f.items, cash:f.cash, card:f.card, transfer:f.transfer, total:f.total,
+      depStart:depStr(f.dep.start), depIn:depStr(f.dep.in), depOut:depStr(f.dep.out), depEnd:depStr(f.dep.end), exp:f.exp, expCash:f.expCash,
+      opening:data.opening_cash, bank:data.bank_deposit, closing:data.closing_cash, working:data.working_cash, cardTotal:data.card_total, note:data.note, by:S.user?.name || '', money:gelStr },
+      window.ER_REPORT.langs.filter(l => langs.includes(l)));
+  };
+  paint();
+  $('dr-day').onchange = () => { $('ov').hidden = true; openDayReport($('dr-day').value || day); };
+  ['dr-open','dr-bank','dr-work','dr-cardt','dr-note'].forEach(id => $(id).oninput = paint);
+  $('dr-text').oninput = () => { edited = true; };
+  $('dr-langs').onclick = e => { const b = e.target.closest('[data-l]'); if (!b) return; const l = b.dataset.l;
+    langs = langs.includes(l) ? (langs.length > 1 ? langs.filter(x => x !== l) : langs) : [...langs, l]; ls.set('er-day-langs', JSON.stringify(langs)); edited = false; paint(); };
+  $('dr-copy').onclick = async () => { const txt = $('dr-text').value; try { await navigator.clipboard.writeText(txt); } catch(e){ $('dr-text').select(); document.execCommand('copy'); } toast(t('copied')); };
+  $('dr-send').onclick = async () => {
+    const { d, data } = figures(), txt = $('dr-text').value, btn = $('dr-send'); btn.disabled = true;
+    // saved first (the phone's share sheet would take the page to the background)
+    try { await q(sb.rpc('start_day', { p_day:d, p_data:data, p_text:txt, p_seller:S.user?.name || '' })); }
+    catch(err){ fail(err); btn.disabled = false; return; }
+    S.fin.ready = null; await loadDayReps(); renderDayBanner();
+    toast(t('day_saved'));
+    let shared = false;
+    if (navigator.share) { try { await navigator.share({ text:txt }); shared = true; } catch(e){ if (e?.name === 'AbortError') shared = true; } }
+    if (!shared) { const a = document.createElement('a'); a.href = 'https://wa.me/?text=' + encodeURIComponent(txt); a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
+    closeOv(); render();
   };
 }
 
