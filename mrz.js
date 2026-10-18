@@ -124,6 +124,35 @@
     return { partial: !(surname || given), surname, given, personal, birth, expiry };
   }
 
+
+  /* driving licence (EU / Georgian / Russian layout): numbered fields
+     1. surname  2. given names  3. date (and place) of birth  4a. issued  4b. valid until  4c. authority  4d. personal number  5. licence number */
+  function licenceFromText(text){
+    const raw = String(text || '');
+    const lines = raw.split(/\n/).map(l => l.replace(/[|_~«»"'`]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const field = re => { for (let i = 0; i < lines.length; i++) { const m = lines[i].match(re); if (m) return { rest: lines[i].slice(m.index + m[0].length).replace(/^[\s:.,)-]+/, ''), i }; } return null; };
+    const isLic = /\b4\s?[abcd]\s?[.,)]/i.test(raw) || (/(^|\n)\s*1\s?[.,)]/.test(raw) && /(^|\n)\s*2\s?[.,)]/.test(raw) && /(^|\n)\s*5\s?[.,)]/.test(raw)) || /DRIV|LICEN|PERMIS|FÜHRER|ВОДИТЕЛЬСК|მართვის/i.test(raw);
+    if (!isLic) return null;
+    const latin = s => { const w = String(s || '').replace(/[^A-Za-z\s-]/g, ' ').match(/\b[A-Z][A-Z-]{1,}(?:\s+[A-Z][A-Z-]{1,})*\b/); return w ? w[0] : ''; };
+    const STOP = /^(DRIVING|LICENCE|LICENSE|PERMIS|GEORGIA|GEO|RUS|RUSSIA|MIA|SSA|GIBDD)$/;
+    const nameAt = re => { const f = field(re); if (!f) return '';
+      let w = latin(f.rest); if (w && !STOP.test(w)) return w;
+      for (let j = f.i + 1; j < Math.min(f.i + 2, lines.length); j++) { if (/^\s*\d\s?[.,)]/.test(lines[j])) break; w = latin(lines[j]); if (w && !STOP.test(w)) return w; }
+      return ''; };
+    const dateIn = s => { const m = String(s || '').match(/([0-3]\d)[.\/ -]([01]\d)[.\/ -]((?:19|20)\d\d)/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+    let surname = nameAt(/^\s*1\s?[.,)]/), given = nameAt(/^\s*2\s?[.,)]/);
+    const birth = dateIn(field(/^\s*3\s?[.,)]/)?.rest);
+    const f4b = field(/\b4\s?b\s?[.,)]?/i), expiry = dateIn(f4b?.rest) || (() => { const ds = [...raw.matchAll(/\b([0-3]\d)[.\/ -]([01]\d)[.\/ -]((?:19|20)\d\d)\b/g)].map(m => `${m[3]}-${m[2]}-${m[1]}`).sort(); const today = new Date().toISOString().slice(0, 10); return ds.reverse().find(d => d > today) || ''; })();
+    const f4d = field(/\b4\s?d\s?[.,)]?/i), personal = ((f4d?.rest || '').match(/\d{11}/) || [''])[0] || personalFromText(raw);
+    const f5 = field(/^\s*5\s?[.,)]/), number = f5 ? f5.rest.split(/\s\d{1,2}\s?[a-z]?\s?[.,)]/i)[0].replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 14) : '';
+    if (!surname && !given) return null;
+    const nat = /\bRUS\b|РОССИ/i.test(raw) ? 'RUS' : (personal || /\bGEO\b|GEORGIA|საქართველო/i.test(raw)) ? 'GEO' : '';
+    // Russian licences print every name twice (Cyrillic, then Latin); read as Latin text the Cyrillic half is noise → keep the second half
+    const half = n => { const w = String(n || '').split(/\s+/).filter(Boolean); return nat === 'RUS' && w.length >= 2 && w.length % 2 === 0 ? w.slice(w.length / 2).join(' ') : n; };
+    surname = half(surname); given = half(given);
+    return { kind:'dl', surname, given, birth, expiry, personal, number, nationality:nat, partial: !(surname && given && (birth || personal)) };
+  }
+
   /* names in the holder's own script: Georgian / Cyrillic words read from the printed page are kept only
      when they transliterate back to the Latin name of the MRZ (so OCR noise can never become a name) */
   const RU = { А:'A',Б:'B',В:'V',Г:'G',Д:'D',Е:'E',Ё:'E',Ж:'ZH',З:'Z',И:'I',Й:'I',К:'K',Л:'L',М:'M',Н:'N',О:'O',П:'P',Р:'R',С:'S',Т:'T',У:'U',Ф:'F',Х:'KH',Ц:'TS',Ч:'CH',Ш:'SH',Щ:'SHCH',Ъ:'IE',Ы:'Y',Ь:'',Э:'E',Ю:'IU',Я:'IA',І:'I',Ї:'I',Є:'IE',Ґ:'G',Ў:'U',Қ:'K',Ғ:'G',Ң:'N',Ү:'U',Ұ:'U',Һ:'H',Ә:'A',Ө:'O' };
@@ -166,5 +195,5 @@
     return '';
   }
 
-  root.MRZ = { parse, personalFromText, frontFromText, check, localName, translit, nationCode };
+  root.MRZ = { parse, personalFromText, frontFromText, licenceFromText, check, localName, translit, nationCode };
 })(typeof window !== 'undefined' ? window : globalThis);

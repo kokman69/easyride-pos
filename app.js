@@ -388,6 +388,23 @@ function prep(bmp, rot, width, bin){
   x.putImageData(img, 0, 0);
   return c;
 }
+/* the document itself: the bright card on a darker table / background, found by row and column brightness */
+function docCrop(c){
+  const W = c.width, H = c.height, k = Math.min(1, 400 / W), sw = Math.max(1, Math.round(W * k)), sh = Math.max(1, Math.round(H * k));
+  const t = document.createElement('canvas'); t.width = sw; t.height = sh; const x = t.getContext('2d', { willReadFrequently:true }); x.drawImage(c, 0, 0, sw, sh);
+  const d = x.getImageData(0, 0, sw, sh).data, g = new Float32Array(sw * sh); let sum = 0;
+  for (let i = 0; i < sw * sh; i++) { g[i] = (d[i * 4] * 299 + d[i * 4 + 1] * 587 + d[i * 4 + 2] * 114) / 1000; sum += g[i]; }
+  const sorted = Array.from(g).sort((a, b) => a - b), th = Math.max(sum / g.length, sorted[Math.floor(g.length * .55)]) + 12;
+  const rows = new Array(sh).fill(0), cols = new Array(sw).fill(0);
+  for (let y = 0; y < sh; y++) for (let xx = 0; xx < sw; xx++) if (g[y * sw + xx] > th) { rows[y]++; cols[xx]++; }
+  const span = (arr, n, min) => { let a = -1, b = -1; for (let i = 0; i < arr.length; i++) if (arr[i] > n * min) { if (a < 0) a = i; b = i; } return [a, b]; };
+  const [y0, y1] = span(rows, sw, .25), [x0, x1] = span(cols, sh, .25);
+  if (y0 < 0 || x0 < 0 || (x1 - x0) < sw * .3 || (y1 - y0) < sh * .2 || ((x1 - x0) > sw * .95 && (y1 - y0) > sh * .95)) return c;
+  const m = .03, X0 = Math.max(0, (x0 / k) - W * m), Y0 = Math.max(0, (y0 / k) - H * m), X1 = Math.min(W, (x1 + 1) / k + W * m), Y1 = Math.min(H, (y1 + 1) / k + H * m);
+  const o = document.createElement('canvas'); o.width = Math.round(X1 - X0); o.height = Math.round(Y1 - Y0);
+  o.getContext('2d').drawImage(c, X0, Y0, X1 - X0, Y1 - Y0, 0, 0, o.width, o.height);
+  return o;
+}
 function crop(c, top, h){
   if (top === 0 && h === 1) return c;
   const o = document.createElement('canvas'); o.width = c.width; o.height = Math.round(c.height * h);
@@ -417,15 +434,24 @@ async function readDocument(file){
   const w = await ocrWorker('eng');
   await w.setParameters({ tessedit_char_whitelist:'', tessedit_pageseg_mode:'3' });
   let front = null;
-  for (const rot of [0, 90, -90, 180]) {
-    const { data } = await w.recognize(prep(bmp, rot, 1800, 0));
-    const f = window.MRZ.frontFromText(data.text);
-    if (f && (!front || (!front.surname && f.surname) || (!front.personal && f.personal))) { front = f; bestRot = rot; }
-    if (front && front.surname && front.personal) break;
+  const card = docCrop(prep(bmp, 0, 2000, 0));
+  for (const [rot, width, bin, cc] of [[0, 1800, 0, 1], [0, 1800, 0], [0, 2400, 1, 1], [0, 2400, 1], [90, 1800, 0], [-90, 1800, 0], [180, 1800, 0]]) {
+    const { data } = await w.recognize(cc ? prep(card, rot, width, bin) : prep(bmp, rot, width, bin));
+    const f = frontOf(data.text);
+    if (f && (!front || frontScore(f) > frontScore(front))) { front = f; bestRot = rot; }
+    if (front && frontScore(front) >= 4) break;
   }
   if (!front) return null;
-  return { out:{ ...front, kind: front.personal ? 'id' : '', nationality: front.personal ? 'GEO' : '', valid:false }, bmp, rot:bestRot };
+  return { out:front, bmp, rot:bestRot };
 }
+/* printed side without <<< lines: a driving licence (numbered fields) or the front of an ID card */
+function frontOf(text){
+  const lic = window.MRZ.licenceFromText?.(text);
+  if (lic && (lic.surname || lic.given)) return { ...lic, valid:!lic.partial };
+  const f = window.MRZ.frontFromText(text);
+  return f ? { ...f, kind: f.personal ? 'id' : '', nationality: f.personal ? 'GEO' : '', valid:false } : null;
+}
+const frontScore = f => !f ? 0 : (f.surname ? 1 : 0) + (f.given ? 1 : 0) + (f.birth ? 1 : 0) + (f.personal || f.number ? 1 : 0) + (f.expiry ? .5 : 0);
 /* Georgian and Russian names stay in their own script: read the printed page in that language and keep only words matching the MRZ.
    Runs after the form is already filled (Latin name first), so the scan itself is not slowed down. */
 async function localNameOf(bmp, rot, out){
@@ -488,10 +514,27 @@ async function liveScan(){
       let w;
       try { w = await ocrWorker('mrz'); await w.setParameters(MRZ_PARAMS); }
       catch(e){ console.error(e); if ($('ls-st')) $('ls-st').textContent = t('scan_fail'); return; }
-      const seen = {}; let i = 0;
+      const seen = {}, seenF = {}; let i = 0, ew = null;
+      ocrWorker('eng').then(x => { ew = x; }).catch(() => {});
       while (alive) {
         if (v.readyState < 2 || !v.videoWidth) { await sleep(120); continue; }
         const f = $('ls-f'); if (!f) break;
+        // every fourth frame: the whole picture as printed text (driving licence, front of an ID card)
+        if (ew && i > 2 && i % 4 === 3) {
+          i++;
+          try {
+            await ew.setParameters({ tessedit_char_whitelist:'', tessedit_pageseg_mode:'3' });
+            const c0 = document.createElement('canvas'); c0.width = v.videoWidth; c0.height = v.videoHeight; c0.getContext('2d').drawImage(v, 0, 0);
+            const { data } = await ew.recognize(prep(docCrop(c0), 0, 1800, (i >> 2) % 2));
+            const f = frontOf(data.text);
+            if (alive && f && frontScore(f) >= 3) {
+              const key = [f.surname, f.given, f.birth, f.personal || f.number].join('|'); seenF[key] = (seenF[key] || 0) + 1;
+              const st = $('ls-st'); if (st) { st.textContent = t('scan_live_almost'); st.className = 'scanmsg'; }
+              if (seenF[key] >= 2 || frontScore(f) >= 4.5) { $('ls-f')?.classList.add('ok'); const blob = await frameBlob(v); await sleep(150); done({ out:f, blob }); break; }
+            }
+          } catch(e){ console.error(e); }
+          continue;
+        }
         const pass = i++ % 3;          // black/white tight · grey · black/white with more room around the guide
         const c = guideCrop(v, f, pass === 2 ? .45 : .2);
         let r = null;
@@ -510,6 +553,13 @@ async function liveScan(){
       }
     })();
   });
+}
+/* the live scan uses the same overlay as the customer form: keep the form and put it back afterwards */
+async function liveScanKeep(){
+  const ov = $('ov'), kept = [...ov.childNodes];
+  const res = await liveScan();
+  if (!kept[0]?.isConnected) { ov.replaceChildren(...kept); ov.hidden = false; document.body.style.overflow = 'hidden'; }
+  return res;
 }
 const titleCase = s => String(s || '').toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
 function ageOf(iso){
@@ -564,7 +614,7 @@ function mountPicker(boxId, force){
       <label class="f">${esc(t('cust_phone'))}<input data-k="phone" type="tel" value="${esc(d.phone)}" autocomplete="off"></label>
       <label class="f">${esc(t('cust_birth'))} <span class="age-slot">${ageChip(d)}</span><input data-k="birth_date" type="date" value="${esc(d.birth_date)}"></label>
       <label class="f">${esc(t('cust_nat'))}<input data-k="nationality" value="${esc(d.nationality)}" autocomplete="off" maxlength="40"></label>
-      <label class="f">${esc(t('cust_doc'))}<select data-k="doc_type"><option value=""></option>${['passport','id'].map(k => `<option value="${k}" ${d.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
+      <label class="f">${esc(t('cust_doc'))}<select data-k="doc_type"><option value=""></option>${['passport','id','dl'].map(k => `<option value="${k}" ${d.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
       <label class="f">${esc(t('doc_expiry'))}<input data-k="doc_expiry" type="date" value="${esc(d.doc_expiry)}"></label></div>
       <div class="row">
       <button type="button" class="btn ghost small" data-act="back">${esc(t('cust_back'))}</button></div></div>`;
@@ -1583,13 +1633,35 @@ function openCustomer(c){
       <label class="f">${esc(t('cust_idnum'))}<input id="kf-id" value="${esc(c?.id_number || '')}"></label>
       <label class="f">${esc(t('cust_birth'))}<input id="kf-birth" type="date" value="${esc(c?.birth_date || '')}"></label>
       <label class="f">${esc(t('cust_nat'))}<input id="kf-nat" value="${esc(c?.nationality || '')}" maxlength="40"></label>
-      <label class="f">${esc(t('cust_doc'))}<select id="kf-doc"><option value=""></option>${['passport','id'].map(k => `<option value="${k}" ${c?.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
+      <label class="f">${esc(t('cust_doc'))}<select id="kf-doc"><option value=""></option>${['passport','id','dl'].map(k => `<option value="${k}" ${c?.doc_type === k ? 'selected' : ''}>${esc(t('doc_' + k))}</option>`).join('')}</select></label>
       <label class="f">${esc(t('doc_expiry'))}<input id="kf-exp" type="date" value="${esc(c?.doc_expiry || '')}"></label></div>
+    <div class="scanrow">${canLive() ? `<button type="button" class="btn small scan" id="kf-live">${esc(t('scan_id'))}</button>` : `<label class="btn small scan">${esc(t('scan_id'))}<input type="file" accept="image/*" capture="environment" class="kf-scan" hidden></label>`}
+      <label class="btn small scan up">${esc(t('upload_id'))}<input type="file" accept="image/*" class="kf-scan" hidden></label></div>
+    <div id="kf-msg"></div>
     <div class="row"><span id="kf-ph">${c?.photo ? `<button type="button" class="btn ghost small" id="kf-view">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}</span>
       <label class="btn small">${esc(t('cust_photo_add'))}<input type="file" class="kf-file" accept="image/*" capture="environment" hidden></label>
       <label class="btn small">${esc(t('upload_photo'))}<input type="file" class="kf-file" accept="image/*" hidden></label></div>
     <button class="btn primary big" type="submit" id="kf-save">${esc(t('save'))}</button></form>`);
   if ($('kf-view')) $('kf-view').onclick = () => viewIdPhoto(c.photo);
+  // read the passport / ID / driving licence and fill the form (the picture is kept as the ID photo)
+  const kmsg = (k, cls = '') => { $('kf-msg').innerHTML = k ? `<div class="scanmsg ${cls}">${esc(t(k))}</div>` : ''; };
+  const fillFrom = async (blob, pre) => {
+    if (!pre) kmsg('scanning');
+    try { photo = await compressImage(blob, 1600, .8); $('kf-ph').innerHTML = `<img class="thumb" src="${URL.createObjectURL(photo)}" alt="">`; } catch(err){ console.error(err); }
+    let got = pre || null;
+    if (!got) { try { got = await readDocument(blob); } catch(err){ console.error(err); } }
+    const r = got?.out; if (!$('kf')) return;
+    if (!r) { kmsg('scan_fail', 'bad'); return; }
+    const latin = titleCase([r.given, r.surname].filter(Boolean).join(' '));
+    const set = (id, v) => { if (v) $(id).value = v; };
+    set('kf-name', r.local || latin); set('kf-id', r.personal || r.number); set('kf-birth', r.birth);
+    set('kf-nat', r.nationality); set('kf-exp', r.expiry); if (r.kind) $('kf-doc').value = r.kind;
+    kmsg(r.partial || !r.valid ? 'scan_partial' : 'scan_ok', r.partial || !r.valid ? '' : 'ok');
+    // Georgian / Russian holders: their name in their own script, once it has been read
+    if (latin && !r.local) (got.bmp ? Promise.resolve(got.bmp) : bitmapOf(blob)).then(bmp => localNameOf(bmp, got.rot || 0, r)).then(n => { if (n && $('kf-name') && $('kf-name').value === latin) $('kf-name').value = n; });
+  };
+  if ($('kf-live')) $('kf-live').onclick = async () => { const res = await liveScanKeep(); if (res?.blob) fillFrom(res.blob, res.out ? { out:res.out } : null); else if (res === undefined) toast(t('scan_cam_denied')); };
+  document.querySelectorAll('.kf-scan').forEach(inp => inp.onchange = e => { const f = e.target.files?.[0]; if (f) fillFrom(f); e.target.value = ''; });
   document.querySelectorAll('.kf-file').forEach(inp => inp.onchange = async e => { if (!e.target.files[0]) return; toast(t('photo_saving')); try { photo = await compressImage(e.target.files[0], 1600, .8); $('kf-ph').innerHTML = `<img class="thumb" src="${URL.createObjectURL(photo)}" alt="">`; } catch(err){ toast(t('photo_fail')); } });
   $('kf').onsubmit = async e => {
     e.preventDefault();
