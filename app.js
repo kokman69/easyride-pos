@@ -1547,7 +1547,7 @@ function renderCustomers(){
           ${bar('b1', o?.r || 0, mx.r, t('cust_rentals'), o?.r || 0)}${bar('b2', o?.s || 0, mx.s, t('cust_purchases'), o?.s || 0)}${bar('b3', o?.sum || 0, mx.sum, t('k_spent'), money(o?.sum || 0))}</div>
         <div class="kdesc"><small>${esc(t('k_details'))}</small>
           <dl>${facts.map(([k, v]) => `<dt>${esc(t(k))}</dt><dd class="num">${esc(v)}</dd>`).join('') || `<dd class="muted">—</dd>`}</dl>
-          <div class="kacts">${hasContract[c.id] ? `<button class="btn ghost small" data-act="contracts">📄 ${esc(t('contract_view'))}</button>` : ''}${c.photo ? `<button class="btn ghost small" data-act="view">🪪 ${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}
+          <div class="kacts">${hasContract[c.id] ? `<button class="btn ghost small" data-act="contracts">📄 ${esc(t('contract_view'))}</button>` : ''}${c.photo ? `<button class="btn ghost small" data-act="view">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}
             <button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button>${isAdmin() ? `<button class="btn ghost small danger" data-act="del">${esc(t('remove'))}</button>` : ''}</div></div>
       </div>` : ''}</div>`; }).join('');
 }
