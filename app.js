@@ -1499,23 +1499,60 @@ function showReport(kind, data){
 }
 
 /* ================= customers ================= */
+/* customers: glass cards in Easy Ride yellow — number, avatar, name, nationality with flag, status; "show" opens stats and details */
+S.kOpen = S.kOpen || {};
+const KCOL = ['#FFE680','#FFD27A','#FFC2A8','#E9E3FF','#C9F0E3','#CFE6FF','#FFD6E8'];
+const initials = n => String(n || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?';
+const hashN = s => [...String(s || '')].reduce((a, ch) => (a * 31 + ch.codePointAt(0)) >>> 0, 7);
+function natInfo(raw){
+  const v = String(raw || '').trim(); if (!v) return null;
+  const C = window.ER_COUNTRIES || {}, up = v.toUpperCase();
+  let a3 = C[up] ? up : Object.keys(C).find(k => C[k].toLowerCase() === v.toLowerCase());
+  const a2 = a3 && (window.ER_ISO2 || {})[a3];
+  if (!a2) return { flag:'🌐', name:v };
+  let name = C[a3];
+  try { name = new Intl.DisplayNames([LANGS_ISO[li()] || 'en'], { type:'region' }).of(a2) || name; } catch(e){}
+  return { flag:String.fromCodePoint(...[...a2].map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65)), name };
+}
+const LANGS_ISO = ['ka', 'en', 'ru', 'ja'];
 function renderCustomers(){
   const qq = $('k-q').value.trim(), list = S.customers.filter(c => !qq || custMatch(c, qq));
-  const nS = {}, nR = {};
-  S.sales.forEach(s => s.customer_id && (nS[s.customer_id] = (nS[s.customer_id] || 0) + 1));
-  S.rentals.forEach(r => r.customer_id && r.status !== 'cancelled' && (nR[r.customer_id] = (nR[r.customer_id] || 0) + 1));
+  const st = {}, g = id => st[id] ??= { s:0, r:0, sum:0, last:'' };
+  S.sales.forEach(s => { if (!s.customer_id) return; const o = g(s.customer_id); o.s++; if (gel(s)) o.sum += +s.total || 0; if (s.created_at > o.last) o.last = s.created_at; });
+  S.rentals.forEach(r => { if (!r.customer_id || r.status === 'cancelled') return; const o = g(r.customer_id); o.r++; o.sum += rentSum(r); if (r.created_at > o.last) o.last = r.created_at; });
   const hasContract = {}; S.rentals.forEach(r => { if (r.customer_id && r.contract?.raw) hasContract[r.customer_id] = 1; });
-  $('k-list').innerHTML = !list.length ? `<div class="empty">${esc(t(S.customers.length ? 'nothing_found' : 'cust_none'))}</div>` : list.slice(0, 300).map(c => `<div class="citem" data-id="${c.id}">
-    <div style="min-width:0"><b>${esc(c.name)}</b> ${ageChip(c)}<div class="small muted num">${esc(custLine(c) || '—')}</div>
-      <div class="small muted">${esc(t('cust_purchases'))}: <span class="num">${nS[c.id] || 0}</span> · ${esc(t('cust_rentals'))}: <span class="num">${nR[c.id] || 0}</span></div></div>
-    <div class="acts row" style="justify-content:flex-end;gap:2px">${hasContract[c.id] ? `<button class="btn ghost small" data-act="contracts">📄 ${esc(t('contract_view'))}</button>` : ''}${c.photo ? `<button class="btn ghost small" data-act="view">${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}
-      <button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button>${isAdmin() ? `<button class="btn ghost small danger" data-act="del">${esc(t('remove'))}</button>` : ''}</div></div>`).join('');
+  const mx = { s:1, r:1, sum:1 }; Object.values(st).forEach(o => { mx.s = Math.max(mx.s, o.s); mx.r = Math.max(mx.r, o.r); mx.sum = Math.max(mx.sum, o.sum); });
+  const level = o => !o ? 'new' : (o.sum >= 1000 || o.s + o.r >= 5) ? 'vip' : (o.s + o.r >= 2) ? 'regular' : 'new';
+  const bar = (cls, v, max, label, txt) => `<div class="kbar ${cls}"><span class="kb-track"><span class="kb-fill" style="width:${Math.max(4, Math.round(100 * v / max))}%"></span></span><span class="kb-v"><b class="num">${txt}</b> ${esc(label)}</span></div>`;
+  $('k-list').className = 'kglass';
+  $('k-list').innerHTML = !list.length ? `<div class="empty">${esc(t(S.customers.length ? 'nothing_found' : 'cust_none'))}</div>` : list.slice(0, 300).map((c, i) => {
+    const o = st[c.id], open = !!S.kOpen[c.id], nat = natInfo(c.nationality), lv = level(o), col = KCOL[hashN(c.id) % KCOL.length];
+    const facts = [['cust_phone', c.phone], ['cust_idnum', c.id_number], ['cust_birth', c.birth_date && fmtDate(c.birth_date)], ['cust_doc', c.doc_type && t('doc_' + c.doc_type)],
+      ['doc_expiry', c.doc_expiry && fmtDate(c.doc_expiry)], ['k_last', o?.last && fmtTs(o.last)], ['k_since', c.created_at && fmtDate(String(c.created_at).slice(0, 10))]].filter(([, v]) => v);
+    return `<div class="kcard ${open ? 'open' : ''}" data-id="${c.id}">
+      <div class="kmain">
+        <span class="knum num">${String(i + 1).padStart(2, '0')}</span>
+        <span class="kava" style="--kc:${col}">${esc(initials(c.name))}</span>
+        <div class="kcol kname"><small>${esc(t('k_name'))}</small><b>${esc(c.name)}</b>${ageChip(c)}</div>
+        <div class="kcol knat"><small>${esc(t('cust_nat'))}</small><b>${nat ? `<span class="kflag">${nat.flag}</span>${esc(nat.name)}` : '—'}</b></div>
+        <div class="kcol klv"><small>${esc(t('k_level'))}</small><b class="lv-${lv}">${esc(t('k_lv_' + lv))}</b></div>
+        <button type="button" class="kbtn" data-act="toggle" aria-expanded="${open}">${esc(t(open ? 'k_hide' : 'k_show'))} <span class="kcar">⌃</span></button>
+      </div>
+      ${open ? `<div class="kmore">
+        <div class="kstat"><small>${esc(t('k_stat'))}</small>
+          ${bar('b1', o?.r || 0, mx.r, t('cust_rentals'), o?.r || 0)}${bar('b2', o?.s || 0, mx.s, t('cust_purchases'), o?.s || 0)}${bar('b3', o?.sum || 0, mx.sum, t('k_spent'), money(o?.sum || 0))}</div>
+        <div class="kdesc"><small>${esc(t('k_details'))}</small>
+          <dl>${facts.map(([k, v]) => `<dt>${esc(t(k))}</dt><dd class="num">${esc(v)}</dd>`).join('') || `<dd class="muted">—</dd>`}</dl>
+          <div class="kacts">${hasContract[c.id] ? `<button class="btn ghost small" data-act="contracts">📄 ${esc(t('contract_view'))}</button>` : ''}${c.photo ? `<button class="btn ghost small" data-act="view">🪪 ${esc(t('cust_photo_view'))}</button>` : `<span class="tag out">${esc(t('cust_no_photo'))}</span>`}
+            <button class="btn ghost small" data-act="edit">${esc(t('edit'))}</button>${isAdmin() ? `<button class="btn ghost small danger" data-act="del">${esc(t('remove'))}</button>` : ''}</div></div>
+      </div>` : ''}</div>`; }).join('');
 }
 $('k-q').oninput = renderCustomers;
 $('k-add').onclick = () => openCustomer(null);
 $('k-list').onclick = e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const c = S.customers.find(x => x.id === b.closest('[data-id]').dataset.id); if (!c) return;
+  if (b.dataset.act === 'toggle') { if (S.kOpen[c.id]) delete S.kOpen[c.id]; else S.kOpen[c.id] = 1; renderCustomers(); return; }
   if (b.dataset.act === 'view') viewIdPhoto(c.photo);
   if (b.dataset.act === 'contracts') openCustomerContracts(c);
   if (b.dataset.act === 'edit') openCustomer(c);
