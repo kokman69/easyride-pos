@@ -942,7 +942,8 @@ function openProduct(p, preset){
         ${fld('engine', 'f_engine', 'placeholder="49 cc / 1200 W"')}${fld('price', 'f_price', 'type="number" min="0" step="1" inputmode="decimal"')}
         ${p ? fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric"') : ''}
         ${fld('note', 'note', '', true)}</div>`
-    : `<div class="formgrid">
+    : `<div><div class="small muted" style="font-weight:600;margin-bottom:6px">${esc(t('photos'))}</div><div class="phgrid" id="pf-ph"></div></div>
+      <div class="formgrid">
         ${fld('name', 'f_name', 'required list="pf-names" autocomplete="off"', true)}
         <datalist id="pf-names">${[...new Set(S.products.filter(x => EASY.includes(x.type)).map(x => x.name).filter(Boolean))].sort().map(n => `<option value="${esc(n)}">`).join('')}</datalist>
         ${fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric" required')}${fld('price', 'f_price', 'type="number" min="0" step="0.01" inputmode="decimal" required')}
@@ -953,12 +954,14 @@ function openProduct(p, preset){
   const drawPhotos = () => {
     if (!$('pf-ph')) return;
     $('pf-ph').innerHTML = photos.map((ph, i) => `<div class="p"><img src="${esc(ph.preview || photoUrl(ph.path))}" alt=""><button type="button" data-rm="${i}" aria-label="${esc(t('remove_photo'))}">×</button></div>`).join('')
-      + `<label class="add">${esc(t('add_photos'))}<input type="file" accept="image/*" multiple hidden id="pf-file"></label>`;
-    $('pf-file').onchange = async e => {
+      // the camera straight away, or pictures that are already on the phone
+      + `<label class="add cam">${esc(t('ph_camera'))}<input type="file" accept="image/*" capture="environment" hidden class="pf-file"></label>`
+      + `<label class="add">${esc(t('ph_gallery'))}<input type="file" accept="image/*" multiple hidden class="pf-file"></label>`;
+    $('pf-ph').querySelectorAll('.pf-file').forEach(inp => inp.onchange = async e => {
       const files = [...e.target.files].slice(0, 8); if (!files.length) return; toast(t('photo_saving'));
       for (const f of files) { try { const blob = await compressImage(f); photos.push({ blob, preview:URL.createObjectURL(blob) }); } catch(err){ toast(t('photo_fail')); } }
       drawPhotos();
-    };
+    });
   };
   drawPhotos();
   if ($('pf-ph')) $('pf-ph').onclick = e => { const b = e.target.closest('[data-rm]'); if (b) { photos.splice(+b.dataset.rm, 1); drawPhotos(); } };
@@ -983,7 +986,7 @@ function openProduct(p, preset){
     }
     const btn = $('pf-save'); btn.disabled = true;
     try {
-      if (veh) {
+      {  // photos for vehicles and items alike
         if (photos.some(x => x.blob)) toast(t('uploading'));
         const paths = [];
         for (const ph of photos) paths.push(ph.path || await uploadBlob('products', `p/${uid()}.jpg`, ph.blob));

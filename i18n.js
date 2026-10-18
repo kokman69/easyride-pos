@@ -1,5 +1,7 @@
 /* Translations: [ქართული, English, Русский, 日本語] */
 window.I18N = {
+  "ph_camera": ["📷 ფოტოს გადაღება","📷 Take photo","📷 Сделать фото","📷 写真を撮る"],
+  "ph_gallery": ["🖼 გალერეიდან","🖼 From gallery","🖼 Из галереи","🖼 ギャラリーから"],
   "k_name": ["სახელი","Name","Имя","名前"],
   "k_level": ["სტატუსი","Status","Статус","ステータス"],
   "k_lv_vip": ["VIP","VIP","VIP","VIP"],
