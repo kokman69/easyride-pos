@@ -1509,10 +1509,14 @@ function natInfo(raw){
   const C = window.ER_COUNTRIES || {}, up = v.toUpperCase();
   let a3 = C[up] ? up : Object.keys(C).find(k => C[k].toLowerCase() === v.toLowerCase());
   const a2 = a3 && (window.ER_ISO2 || {})[a3];
-  if (!a2) return { flag:'🌐', name:v };
-  let name = C[a3];
-  try { name = new Intl.DisplayNames([LANGS_ISO[li()] || 'en'], { type:'region' }).of(a2) || name; } catch(e){}
-  return { flag:String.fromCodePoint(...[...a2].map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65)), name };
+  if (!a2) return { flag:'<span class="kflag">🌐</span>', name:v };
+  const lg = LANGS_ISO[li()] || 'en';
+  let name = lg === 'ka' && (window.ER_COUNTRY_KA || {})[a3] || C[a3];
+  if (!(lg === 'ka' && (window.ER_COUNTRY_KA || {})[a3]) && lg !== 'en') {
+    try { if (Intl.DisplayNames.supportedLocalesOf([lg]).length) name = new Intl.DisplayNames([lg], { type:'region', fallback:'none' }).of(a2) || name; } catch(e){}
+  }
+  // a picture: Windows shows emoji flags as two letters
+  return { flag:`<img class="kflag" src="https://flagcdn.com/w40/${a2.toLowerCase()}.png" width="26" height="19" alt="" loading="lazy" onerror="this.remove()">`, name };
 }
 const LANGS_ISO = ['ka', 'en', 'ru', 'ja'];
 function renderCustomers(){
@@ -1534,7 +1538,7 @@ function renderCustomers(){
         <span class="knum num">${String(i + 1).padStart(2, '0')}</span>
         <span class="kava" style="--kc:${col}">${esc(initials(c.name))}</span>
         <div class="kcol kname"><small>${esc(t('k_name'))}</small><b>${esc(c.name)}</b>${ageChip(c)}</div>
-        <div class="kcol knat"><small>${esc(t('cust_nat'))}</small><b>${nat ? `<span class="kflag">${nat.flag}</span>${esc(nat.name)}` : '—'}</b></div>
+        <div class="kcol knat"><small>${esc(t('cust_nat'))}</small><b>${nat ? `${nat.flag}${esc(nat.name)}` : '—'}</b></div>
         <div class="kcol klv"><small>${esc(t('k_level'))}</small><b class="lv-${lv}">${esc(t('k_lv_' + lv))}</b></div>
         <button type="button" class="kbtn" data-act="toggle" aria-expanded="${open}">${esc(t(open ? 'k_hide' : 'k_show'))} <span class="kcar">⌃</span></button>
       </div>

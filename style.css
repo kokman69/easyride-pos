@@ -774,6 +774,7 @@ nav#tabs button[aria-selected="true"]{box-shadow:inset 3px 0 0 var(--orange)}
 .kcol b{max-width:100%;font-size:19px;font-weight:600;line-height:1.25;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:8px}
 .kname > :not(small):not(b){width:auto;flex:none}
 .kflag{font-size:22px;line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.2))}
+img.kflag{width:26px;height:19px;object-fit:cover;border-radius:4px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.12)}
 .lv-vip{color:#E8A400 !important}.lv-regular{color:var(--ink)}.lv-new{color:var(--muted) !important;font-weight:500 !important}
 .kbtn{justify-self:end;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 18px;border-radius:12px;font:600 14px/1 inherit;cursor:pointer;white-space:nowrap;
   background:rgba(255,255,255,.45);color:#1d1d1f;border:1px solid rgba(255,255,255,.6);backdrop-filter:blur(6px);transition:background .15s}
