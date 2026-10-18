@@ -701,10 +701,14 @@ function renderSimplePick(){
   if (kind !== 'veh') {
     const avail = S.products.filter(p => isEasy(p) && left(p) > 0);
     const cq = $('sp-code').value.trim(), hit = cq ? byCode(cq, avail) : null;
-    $('sp-hit').innerHTML = hit ? `<button type="button" class="btn primary" data-id="${hit.id}">＋ <span class="num">${esc(hit.code)}</span> · ${esc(pName(hit))} · ${+hit.price ? money(hit.price) : '—'}</button>`
+    $('sp-hit').innerHTML = hit ? `<button type="button" class="btn primary sphit" data-id="${hit.id}">${hit.photos?.[0] ? `<img src="${esc(photoUrl(hit.photos[0]))}" alt="">` : ''}＋ <span class="num">${esc(hit.code)}</span> · ${esc(pName(hit))} · ${+hit.price ? money(hit.price) : '—'}</button>`
       : cq ? `<span class="small muted">${esc(t('code_none'))}</span>` : '';
     const list = avail.filter(p => match(p, qq) && (!cq || match(p, cq))).sort((x, y) => String(x.code || '').localeCompare(String(y.code || ''), undefined, { numeric:true }) || pName(x).localeCompare(pName(y)));
     $('sp-item').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([p.code, pName(p)].filter(Boolean).join(' — '))} · ${+p.price ? money(p.price) : '—'} · ${left(p)} ${esc(t('pcs'))}</option>`).join('');
+    // the same items as photo tiles: tap = add to the sale, the small 🔍 = big photo and details
+    $('sp-egrid').innerHTML = list.slice(0, 120).map(p => { const ph = p.photos?.[0];
+      return `<div class="etile" data-id="${p.id}" role="button" tabindex="0"><div class="eti">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : '<span>📦</span>'}<button type="button" class="etz" data-gal="${p.id}" aria-label="${esc(t('details'))}">🔍</button></div>
+        <div class="etb"><span class="num etc">${esc(p.code || '')}</span><span class="etn">${esc(pName(p))}</span><span class="num etp">${+p.price ? money(p.price) : '—'} · ${left(p)} ${esc(t('pcs'))}</span></div></div>`; }).join('');
     if (kind === 'easy') return;
   }
   const avail = S.products.filter(p => !isEasy(p) && left(p) > 0);
@@ -716,6 +720,8 @@ function renderSimplePick(){
 }
 $('sp-type').onchange = e => { S.spType = e.target.value; renderSale(); };
 ['sp-model','sp-item'].forEach(id => $(id).onchange = e => { const v = e.target.value; if (!v) return; addToCart(v); e.target.value = ''; });
+$('sp-egrid').onclick = e => { const z = e.target.closest('[data-gal]'); if (z) return showGallery(S.products.find(x => x.id === z.dataset.gal), true);
+  const tl = e.target.closest('.etile'); if (tl) addToCart(tl.dataset.id); };
 $('sp-code').oninput = () => renderSimplePick();
 const addByCode = () => { const p = byCode($('sp-code').value, S.products.filter(isEasy)); if (!p) return false; addToCart(p.id); $('sp-code').value = ''; renderSale(); $('sp-code').focus(); return true; };
 $('sp-code').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if (!addByCode()) toast(t('code_none')); } };
@@ -725,7 +731,9 @@ const saleKind = () => ['all', 'veh', 'easy'].includes(S.sKind) ? S.sKind : 'all
 const inSaleKind = (p, k = saleKind()) => k === 'all' || (k === 'easy' ? isEasy(p) : !isEasy(p));
 const leftOf = p => (+p.qty || 0) - S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0);
 const erowHtml = p => { const left = leftOf(p);
+  const ph = p.photos?.[0];
   return `<div class="erow ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
+        <button type="button" class="eph" data-gal="${p.id}" aria-label="${esc(t('details'))}">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : '<span>📦</span>'}</button>
         <span class="code num">${esc(p.code || '—')}</span><span class="nm">${esc(pName(p))}${p.color ? ` <span class="muted small">${esc(p.color)}</span>` : ''}</span>
         <span class="num pr">${+p.price ? money(p.price) : '—'}</span><span class="tag ${left <= 0 ? 'out' : left <= 1 ? 'low' : ''}">${left <= 0 ? esc(t('out')) : left + ' ' + esc(t('pcs'))}</span>
         ${isAdmin() ? `<button type="button" class="btn ghost small" data-edit="${p.id}">${esc(t('edit'))}</button>` : ''}</div>`; };
