@@ -829,3 +829,101 @@ html.simple .erow .eph{width:72px;height:56px}
 
 /* v36 product photos: camera tile first */
 .phgrid label.add.cam{border-color:var(--orange,#FFD200);color:var(--ink);background:rgba(255,210,0,.12)}
+
+/* ===== v38 home page (sale or rental on the left, today on the right) ===== */
+html.athome nav#tabs{display:none!important}
+html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
+@media (min-width:761px){
+  html.athome #app>header{position:sticky;top:0;bottom:auto;width:auto;border-right:0;border-bottom:1px solid var(--line);overflow:visible;z-index:20}
+  html.athome #app>header .bar{flex-direction:row;align-items:center;min-height:0;padding:12px 24px;gap:16px}
+  html.athome .who{margin-left:auto;flex-wrap:nowrap}
+  html.athome .who .whobtn{flex:none}
+  html.athome main{margin-left:0;padding:20px 24px 40px}
+}
+.home{display:grid;grid-template-columns:minmax(330px,420px) minmax(0,1fr);gap:20px;align-items:start}
+.hleft{display:flex;flex-direction:column;gap:12px;min-width:0}
+.hmode{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.hmode button{border:0;border-radius:10px;padding:12px;font:600 15px var(--f-ui);background:none;color:var(--muted);cursor:pointer}
+.hmode button[aria-selected="true"]{background:var(--pri,#FFD200);color:var(--pri-ink,#111)}
+#v-home .spick{display:flex!important}
+#v-home .receipt{display:flex!important;position:static!important;inset:auto!important;max-height:none!important;overflow:visible!important;z-index:auto;transform:none!important}
+#v-home #r-form{margin:0}
+.hright{display:flex;flex-direction:column;gap:14px;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;min-height:calc(100vh - 120px)}
+.hcols{display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1}
+.hcol{display:flex;flex-direction:column;gap:10px;min-width:0;padding:0 14px}
+.hcol+.hcol{border-left:1px solid var(--line)}
+.hhead{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.hhead h3{margin:0;font-size:15px}
+.hhead .num{font-weight:700;color:var(--muted)}
+.hlist{display:flex;flex-direction:column}
+.hrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 2px;border-bottom:1px solid var(--line);font-size:14px}
+.hrow-n{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.hrow-n small{color:var(--muted);font-size:12px}
+.hrow-n b,.hrow-n{white-space:nowrap;text-overflow:ellipsis}
+.hnow{background:var(--card);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.hnow-t{display:flex;justify-content:space-between;font-size:13px}
+.hnowrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.hnowrow:first-child{border-top:0}
+.hcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.hcard{background:var(--card);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.hcard-ph{position:relative;aspect-ratio:16/10;background:var(--line);display:grid;place-items:center;color:var(--muted);font-size:13px}
+.hcard-ph img{width:100%;height:100%;object-fit:cover;display:block}
+.hcard-ph .tag{position:absolute;left:8px;top:8px}
+.hcard-b{display:flex;flex-direction:column;gap:2px;padding:8px 10px 4px;font-size:13px;min-width:0}
+.hcard-b b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hcard-b small{color:var(--muted)}
+.hcard-a{display:flex;gap:4px;padding:0 6px 8px;flex-wrap:wrap}
+.hnav{display:flex;flex-wrap:wrap;gap:10px;padding-top:12px;border-top:1px solid var(--line)}
+.hnav .btn{flex:1 1 130px;justify-content:center;padding:14px 12px;font-weight:600}
+.hnav .hclose{flex-basis:100%;border-color:var(--danger);color:var(--danger)}
+@media (max-width:1100px){ .home{grid-template-columns:minmax(0,1fr)} .hright{min-height:0} }
+@media (max-width:640px){ .hcols{grid-template-columns:1fr} .hcol{padding:0} .hcol+.hcol{border-left:0;border-top:1px solid var(--line);padding-top:12px;margin-top:12px} .hright{padding:12px} }
+.sflist{display:flex;flex-direction:column;gap:6px}
+.sfrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--card);border-radius:10px;padding:10px 12px;font-size:14px}
+
+/* after login: open the register */
+.opengate{position:fixed;inset:0;z-index:45;display:grid;place-items:center;padding:20px;background:radial-gradient(circle at 30% 20%,rgba(255,210,0,.16),transparent 55%),var(--bg)}
+.opengate[hidden]{display:none}
+.og-box{display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;max-width:440px}
+.og-box h1{margin:8px 0 0;font-size:28px}
+.og-box p{margin:0;line-height:1.5}
+.og-btn{font-size:20px!important;padding:20px 34px!important;border-radius:18px!important;width:100%;box-shadow:0 14px 40px -12px rgba(255,190,0,.7)}
+
+/* the agreement always black on white, like paper */
+#ov .contract{background:#fff;color:#111;border-radius:12px;padding:22px 24px;box-shadow:0 1px 0 rgba(0,0,0,.08),0 10px 30px -18px rgba(0,0,0,.5)}
+#ov .contract *{color:inherit}
+#ov .contract header{border-bottom-color:#111}
+#ov .contract .muted,#ov .contract small{color:#555}
+#ov .contract .agree{background:#f4f4f4;border-left-color:#FFD200}
+#ov .contract .sigimg{background:#fff;border:1px solid #ddd}
+#ov .sigpad{background:#fff}
+
+/* customers: neutral transparent glass (no yellow) */
+.kglass{background:linear-gradient(135deg,rgba(255,255,255,.06),rgba(255,255,255,.02));border-color:rgba(255,255,255,.12);box-shadow:0 18px 50px -24px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.08)}
+.kglass::before{background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%)}
+.kglass::after{background:radial-gradient(circle,rgba(255,255,255,.06),transparent 70%)}
+.kcard{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.10);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+.kcard:hover{background:rgba(255,255,255,.08)}
+.kcard.open{background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.22);box-shadow:0 14px 40px -20px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.12)}
+.knum{background:rgba(255,255,255,.10);color:var(--ink);border-color:rgba(255,255,255,.18)}
+.kava{border-color:rgba(255,255,255,.55);box-shadow:0 6px 18px -8px rgba(0,0,0,.6)}
+.kbtn{background:rgba(255,255,255,.10);color:var(--ink);border-color:rgba(255,255,255,.18)}
+.kbtn:hover{background:rgba(255,255,255,.18)}
+.kcard.open .kbtn{background:rgba(255,255,255,.88);border-color:transparent;color:#111;box-shadow:none}
+.lv-vip{color:var(--ink)!important}
+.lv-vip::before{content:"★ ";color:var(--muted)}
+.kbar.b1 .kb-fill{background:linear-gradient(90deg,#d9d9de,#ffffff)}.kbar.b1 b{color:var(--ink)}
+.kbar.b2 .kb-fill{background:linear-gradient(90deg,#9a9aa2,#c8c8ce)}.kbar.b2 b{color:var(--ink)}
+.kbar.b3 .kb-fill{background:linear-gradient(90deg,#6c6c74,#9a9aa2)}
+:root[data-theme="light"] .kglass{background:linear-gradient(135deg,rgba(255,255,255,.65),rgba(255,255,255,.35));border-color:rgba(0,0,0,.08);box-shadow:0 18px 50px -28px rgba(0,0,0,.25)}
+:root[data-theme="light"] .kglass::before,:root[data-theme="light"] .kglass::after{background:none}
+:root[data-theme="light"] .kcard{background:rgba(255,255,255,.55);border-color:rgba(0,0,0,.06)}
+:root[data-theme="light"] .kcard.open{background:rgba(255,255,255,.85);border-color:rgba(0,0,0,.12)}
+:root[data-theme="light"] .knum,:root[data-theme="light"] .kbtn{background:rgba(0,0,0,.05);border-color:rgba(0,0,0,.08)}
+:root[data-theme="light"] .kcard.open .kbtn{background:#111;color:#fff}
+:root[data-theme="light"] .kbar.b1 .kb-fill{background:linear-gradient(90deg,#55555c,#8a8a92)}
+:root[data-theme="light"] .kbar.b2 .kb-fill{background:linear-gradient(90deg,#9a9aa2,#c2c2c8)}
+:root[data-theme="light"] .kbar.b3 .kb-fill{background:linear-gradient(90deg,#2b2b2e,#5a5a60)}
+#ov .contract .csum{background:#f4f4f4;border:1px solid #e3e3e3;color:#111}
+#ov .contract .csum dt{color:#555}
+#ov .contract .csum dd{color:#111}

@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Georgian:wght@400;500;600;700;800&family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="style.css?v=37">
+<link rel="stylesheet" href="style.css?v=38">
 <script>try{var md=localStorage.getItem('er-mode');if(md==='simple'||(md!=='full'&&(matchMedia('(pointer:coarse)').matches||innerWidth<=1100)))document.documentElement.classList.add('simple')}catch(e){}</script>
 <script>try{var th=localStorage.getItem('er-theme');if(th==='light'||th==='dark')document.documentElement.setAttribute('data-theme',th)}catch(e){}</script>
 </head>
@@ -30,6 +30,17 @@
       <label class="btn icon-btn langbtn" title="Language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><select class="lang" id="lang-g" aria-label="Language"></select></label>
     </div>
     <div id="gate-body" class="stack"><div class="muted" data-i="loading"></div></div>
+  </div>
+</div>
+
+<!-- AFTER LOGIN: open the cash register (sends yesterday's report) -->
+<div id="opengate" class="opengate" hidden>
+  <div class="og-box">
+    <div class="brand">easy<b>ride</b></div>
+    <h1 id="og-hi"></h1>
+    <p class="muted" data-i="og_hint"></p>
+    <button type="button" class="btn primary og-btn" id="og-open" data-i="og_open"></button>
+    <button type="button" class="btn ghost small" id="og-skip" data-i="og_later" hidden></button>
   </div>
 </div>
 
@@ -51,8 +62,38 @@
 <main>
   <div id="banner" class="banner" hidden></div>
 
+  <!-- HOME: sale or rental on the left, today on the right -->
+  <section id="v-home" hidden>
+    <div class="home">
+      <div class="hleft">
+        <div class="hmode" id="h-mode" role="tablist"></div>
+        <div class="stack" id="h-sale">
+          <div id="h-sale-pick" class="stack"></div>
+          <div id="h-sale-cart"></div>
+        </div>
+        <div id="h-rent" hidden></div>
+      </div>
+      <div class="hright">
+        <div class="hcols">
+          <div class="hcol"><div class="hhead"><h3 data-i="h_sold_today"></h3><span class="num" id="h-sold-sum"></span></div><div id="h-sold" class="hlist"></div></div>
+          <div class="hcol"><div class="hhead"><h3 data-i="h_rented_today"></h3><span class="num" id="h-rent-sum"></span></div>
+            <div class="hnow"><div class="hnow-t"><b data-i="h_now_rented"></b><span class="num" id="h-now-n"></span></div><div id="h-now"></div></div>
+            <div id="h-rented" class="hcards"></div></div>
+        </div>
+        <div class="hnav">
+          <button type="button" class="btn" data-go="stock" data-i="h_nav_stock"></button>
+          <button type="button" class="btn" data-go="customers" data-i="tab_customers"></button>
+          <button type="button" class="btn" data-go="report" data-i="tab_report"></button>
+          <button type="button" class="btn" data-go="fin" data-i="tab_fin"></button>
+          <button type="button" class="btn" data-go="settings" data-i="tab_settings" id="h-go-settings"></button>
+          <button type="button" class="btn hclose" id="h-close" data-i="h_close_shift"></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- SALE -->
-  <section id="v-sale">
+  <section id="v-sale" hidden>
     <div class="daybar" id="day-banner" hidden></div>
     <div class="pos">
       <div class="stack">
@@ -118,8 +159,8 @@
 
   <!-- RENT -->
   <section id="v-rent" hidden>
-    <div class="grid2">
-      <div class="panel pad stack">
+    <div class="grid2" id="r-grid">
+      <div class="panel pad stack" id="r-form">
         <h3 data-i="rent_new"></h3>
         <div class="formgrid two">
           <label class="f"><span data-i="vehicle"></span><select id="r-type"></select></label>
@@ -235,12 +276,12 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=37"></script>
-<script src="i18n.js?v=37"></script>
-<script src="countries.js?v=37"></script>
-<script src="mrz.js?v=37"></script>
-<script src="contract.js?v=37"></script>
-<script src="report.js?v=37"></script>
-<script src="app.js?v=37"></script>
+<script src="config.js?v=38"></script>
+<script src="i18n.js?v=38"></script>
+<script src="countries.js?v=38"></script>
+<script src="mrz.js?v=38"></script>
+<script src="contract.js?v=38"></script>
+<script src="report.js?v=38"></script>
+<script src="app.js?v=38"></script>
 </body>
 </html>
