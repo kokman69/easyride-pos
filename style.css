@@ -927,3 +927,24 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 #ov .contract .csum{background:#f4f4f4;border:1px solid #e3e3e3;color:#111}
 #ov .contract .csum dt{color:#555}
 #ov .contract .csum dd{color:#111}
+#sp-vgrid{grid-template-columns:repeat(auto-fill,minmax(128px,1fr))}
+#sp-vgrid .etb .small{font-size:11px}
+/* v40: return time badge, WhatsApp-to-customer button */
+.dueb{display:inline-flex;align-items:baseline;gap:4px;white-space:nowrap;font:700 13px var(--f-num,inherit);padding:3px 8px;border-radius:8px;background:rgba(255,255,255,.08);color:var(--ink)}
+.dueb small{font-weight:500;color:var(--muted);font-size:11px}
+.dueb.soon{background:rgba(255,190,0,.18);color:#FFC400}
+.dueb.late{background:rgba(255,80,80,.16);color:var(--danger)}.dueb.late small{color:var(--danger)}
+:root[data-theme="light"] .dueb{background:rgba(0,0,0,.06)}
+.hnowrow{grid-template-columns:minmax(0,1fr) auto auto}
+.hcard-b .dueb{align-self:flex-start;margin:2px 0}
+.tariff .dueb{margin-bottom:4px}
+.wabtn{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:2px;text-decoration:none;background:#25D366!important;color:#fff!important;border-color:#25D366!important}
+.wabtn small{font-weight:500;opacity:.9;font-size:12px}
+.wabtn.wait{opacity:.7}.wabtn.off{opacity:.45;filter:grayscale(1)}
+.hnowrow .hrow-n b{white-space:normal;overflow-wrap:anywhere;line-height:1.25}
+.hclose{display:flex;align-items:center;justify-content:center;gap:8px}
+.hclose .chev{transition:transform .2s}.hclose.on .chev{transform:rotate(180deg)}
+.hclose.on{background:rgba(255,80,80,.10)}
+.hcash{animation:hcash .2s ease}.hcash .panel{margin:0}
+@keyframes hcash{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.hcash .specs{grid-template-columns:minmax(0,1fr) auto}.hcash .specs dd{text-align:right}

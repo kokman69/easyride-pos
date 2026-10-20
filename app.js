@@ -750,7 +750,7 @@ const hasIdPhoto = (boxId, c) => !!(PICK[boxId]?.photo || c?.photo);
 function renderSimplePick(){
   const kind = saleKind(), qq = $('s-q').value.trim();
   const left = p => (+p.qty || 0) - S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0);
-  $('sp-veh').hidden = kind === 'easy'; $('sp-easy').hidden = kind === 'veh';
+  $('sp-veh').hidden = $('sp-vgrid').hidden = kind === 'easy'; $('sp-easy').hidden = kind === 'veh';
   if (kind !== 'veh') {
     const avail = S.products.filter(p => isEasy(p) && left(p) > 0);
     const cq = $('sp-code').value.trim(), hit = cq ? byCode(cq, avail) : null;
@@ -770,10 +770,14 @@ function renderSimplePick(){
   $('sp-type').innerHTML = types.map(k => `<option value="${k}" ${k === S.spType ? 'selected' : ''}>${esc(tType(k))} (${avail.filter(p => p.type === k).length})</option>`).join('') || `<option value="">—</option>`;
   const list = avail.filter(p => p.type === S.spType && match(p, qq)).sort((x, y) => (plateOf(x) ? 0 : 1) - (plateOf(y) ? 0 : 1) || plateOf(x).localeCompare(plateOf(y), undefined, { numeric:true }) || pName(x).localeCompare(pName(y)));
   $('sp-model').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([plateOf(p), pName(p), p.color, p.year].filter(Boolean).join(' · '))} — ${+p.price ? money(p.price) : esc(t('negotiable'))}</option>`).join('');
+  // the vehicles as photo tiles too, like the items: tap = add to the sale, 🔍 = big photo and details
+  $('sp-vgrid').innerHTML = list.slice(0, 120).map(p => { const ph = p.photos?.[0];
+    return `<div class="etile" data-id="${p.id}" role="button" tabindex="0"><div class="eti">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : '<span>🛵</span>'}<button type="button" class="etz" data-gal="${p.id}" aria-label="${esc(t('details'))}">🔍</button></div>
+      <div class="etb"><span class="num etc">${esc(plateOf(p) || p.year || '')}</span><span class="etn">${esc(pName(p))}</span><span class="small muted">${esc([p.color, plateOf(p) ? p.year : ''].filter(Boolean).join(' · '))}</span><span class="num etp">${+p.price ? money(p.price) : esc(t('negotiable'))}</span></div></div>`; }).join('');
 }
 $('sp-type').onchange = e => { S.spType = e.target.value; renderSale(); };
 ['sp-model','sp-item'].forEach(id => $(id).onchange = e => { const v = e.target.value; if (!v) return; addToCart(v); e.target.value = ''; });
-$('sp-egrid').onclick = e => { const z = e.target.closest('[data-gal]'); if (z) return showGallery(S.products.find(x => x.id === z.dataset.gal), true);
+$('sp-egrid').onclick = $('sp-vgrid').onclick = e => { const z = e.target.closest('[data-gal]'); if (z) return showGallery(S.products.find(x => x.id === z.dataset.gal), true);
   const tl = e.target.closest('.etile'); if (tl) addToCart(tl.dataset.id); };
 $('sp-code').oninput = () => renderSimplePick();
 const addByCode = () => { const p = byCode($('sp-code').value, S.products.filter(isEasy)); if (!p) return false; addToCart(p.id); $('sp-code').value = ''; renderSale(); $('sp-code').focus(); return true; };
@@ -1075,6 +1079,16 @@ function dueLabel(r){
   const late = r.status === 'active' && new Date(r.ends_at) < new Date();
   return ` · <span class="due ${late ? 'late' : ''}">${esc(t(late ? 'overdue' : 'return_by'))} ${fmtTs(r.ends_at)}</span>`;
 }
+/* when the vehicle is due back: the stored end, or start + the rate's length for older rows */
+const dueAt = r => { if (r.ends_at) return new Date(r.ends_at); const u = UNIT_MS[r.rate?.u]; return u && r.rate?.n ? new Date(new Date(r.created_at).getTime() + r.rate.n * u) : null; };
+function dueBadge(r){
+  const d = dueAt(r); if (!d || isNaN(d)) return '';
+  const now = new Date(), mins = Math.round((d - now) / 6e4), late = r.status === 'active' && mins < 0;
+  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes()), day = dayKey(d) === dayKey(now) ? '' : pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + ' ';
+  const span = m => { m = Math.abs(m); return m >= 1440 ? Math.floor(m / 1440) + t('u_d_short') + ' ' + Math.floor(m % 1440 / 60) + t('u_h_short') : m >= 60 ? Math.floor(m / 60) + t('u_h_short') + ' ' + (m % 60) + t('u_m_short') : m + t('u_m_short'); };
+  const left = r.status !== 'active' ? '' : late ? ' · +' + span(mins) : ' · ' + span(mins);
+  return `<span class="dueb ${late ? 'late' : mins <= 30 && r.status === 'active' ? 'soon' : ''}" title="${esc(t(late ? 'overdue' : 'return_by'))}">⏰ ${day}${hm}<small>${left}</small></span>`;
+}
 function renderRent(){
   const T = S.settings.tariffs || [], curT = $('r-type').value;
   $('r-type').innerHTML = T.map((x, i) => `<option value="${i}" ${String(i) === curT ? 'selected' : ''}>${esc(tType(x.type))}</option>`).join('');
@@ -1087,7 +1101,7 @@ function renderRent(){
   const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
       <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit, r.deposit_currency || 'GEL')}${r.deposit_payment ? ' · ' + esc(tPay(r.deposit_payment)) : ''}` : ''}</div>${cBtn(r)}${eBtn()}</div>
-      <div style="text-align:right"><div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
+      <div style="text-align:right">${dueBadge(r)}<div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
     : `<div class="empty small">${esc(t('nothing_rented'))}</div>`;
   const done = S.rentals.filter(r => r.status === 'returned').slice(0, 50);
   $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(rentSum(r))}${+r.late_fee ? `<div class="small due late">+${money(r.late_fee)}</div>` : ''}</td><td style="white-space:nowrap">${cBtn(r)}${eBtn()}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
@@ -1110,10 +1124,11 @@ function unitOptions(type){
   const busy = new Set(S.rentals.filter(r => r.status === 'active').flatMap(r => [r.unit_id && 'f:' + r.unit_id, r.product_id && 'p:' + r.product_id]).filter(Boolean));
   const byLabel = (a, b) => a.label.localeCompare(b.label, undefined, { numeric:true });
   // petrol mopeds only with a number (frame / plate); electric ones, scooters and bikes always — the number is shown in the list
-  const needNo = type === 'moped', qq = ($('r-unit-q')?.value || '').trim().toLowerCase().replace(/[\s-]/g, '');
+  // the number written like BA2148 (letters + digits), not a long VIN
+  const needNo = type === 'moped', isNo = v => /^[A-Z]{1,3}\d{3,6}$/.test(String(v || '').toUpperCase().replace(/[\s-]/g, '')), qq = ($('r-unit-q')?.value || '').trim().toLowerCase().replace(/[\s-]/g, '');
   const hit = l => !qq || l.toLowerCase().replace(/[\s-]/g, '').includes(qq);
-  const fleet = S.fleet.filter(f => f.type === type && (!needNo || String(f.number || '').trim())).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).filter(u => hit(u.label)).sort(byLabel);
-  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && (!needNo || plateOf(p) || String(p.code || '').trim())).map(p => ({ key:'p:' + p.id, label:stockLabel(p), pl:plateOf(p) })).filter(u => hit(u.label)).sort((a, b) => (a.pl ? 0 : 1) - (b.pl ? 0 : 1) || byLabel(a, b));
+  const fleet = S.fleet.filter(f => f.type === type && (!needNo || isNo(f.number))).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).filter(u => hit(u.label)).sort(byLabel);
+  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && (!needNo || isNo(plateOf(p)) || isNo(p.code))).map(p => ({ key:'p:' + p.id, label:stockLabel(p), pl:plateOf(p) })).filter(u => hit(u.label)).sort((a, b) => (a.pl ? 0 : 1) - (b.pl ? 0 : 1) || byLabel(a, b));
   return { busy, groups:[['grp_fleet', fleet], ['grp_stock', stock]].filter(([, l]) => l.length) };
 }
 function fillUnits(){
@@ -1202,7 +1217,8 @@ async function viewContract(r, share, opts = {}){
   const c = r.contract; if (!c?.raw) { toast(t('contract_none')); return; }
   let lg = c.lang || LANG, url = '', pdf = null, pdfLang = '';
   openOv(`${opts.done ? `<div class="okbox noprint">✅ ${esc(t('rent_done_signed'))}</div>
-    <div class="row noprint" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn primary big" id="cv-rep" style="flex:1;width:auto">📤 ${esc(t('rent_done_report'))}</button>
+    ${custWaBtn('cv-wa', true)}
+    <div class="row noprint" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn big" id="cv-rep" style="flex:1;width:auto">📤 ${esc(t('rent_done_report'))}</button>
       <button type="button" class="btn big" id="cv-files" style="flex:1;width:auto">📎 ${esc(t('rent_done_files'))}</button></div>` : ''}
     <div class="row between noprint" style="flex-wrap:wrap;gap:8px">${langChips(lg)}<button type="button" class="btn small" data-close>${esc(t('close'))}</button></div>
     <div class="row noprint cvacts" style="gap:6px;flex-wrap:wrap"><button type="button" class="btn primary" id="cv-share">📤 ${esc(t('contract_share'))}</button>
@@ -1218,6 +1234,7 @@ async function viewContract(r, share, opts = {}){
   $('cv-print').onclick = () => window.print();
   if ($('cv-rep')) $('cv-rep').onclick = () => showReport('rental', rentalReportData(r));
   if ($('cv-files')) $('cv-files').onclick = () => sendRentalFiles(r);
+  if ($('cv-wa')) armCustWa('cv-wa', r);
   $('cv-copy').onclick = async () => {
     const txt = contractText(r, lg);
     try { await navigator.clipboard.writeText(txt); } catch(e){ const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
@@ -1416,7 +1433,7 @@ $('r-save').onclick = async () => {
     try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).in('id', savedAll.map(y => y.id)));
       // the signed agreement is also kept as a PDF next to the signature (made in the background)
       const signedRow = { ...saved, signature:path };
-      contractPdf(signedRow, sig.lang).then(pdf => uploadBlob('id-photos', path.replace(/\.png$/, '.pdf'), pdf, 'application/pdf')).catch(e => console.error('contract pdf', e)); }
+      await contractPdf(signedRow, sig.lang).then(pdf => uploadBlob('id-photos', path.replace(/\.png$/, '.pdf'), pdf, 'application/pdf')).catch(e => console.error('contract pdf', e)); }
     catch(e){ console.error(e); toast(t('sign_fail')); }
     await uploadRentalVideo(saved.id, savedAll.map(y => y.id));
     XU = []; drawExtraUnits();
@@ -2087,7 +2104,7 @@ function cashHtml(today){
   if (!c) body = `<p class="small muted" style="margin:0">${esc(t('fin_cash_closed_hint'))}</p>
     <div class="row" style="gap:8px;flex-wrap:nowrap"><input id="fn-open-amt" type="number" min="0" step="0.01" inputmode="decimal" placeholder="${esc(t('fin_opening'))}"><button type="button" class="btn primary" id="fn-open">${esc(t('fin_open'))}</button></div>`;
   else if (!c.closed_at) body = `<div class="small muted">${esc(t('fin_opened'))} ${fmtTs(c.opened_at)} · ${esc(c.opened_by || '')}</div>${tbl}
-    <div class="row" style="gap:8px;flex-wrap:nowrap"><input id="fn-count" type="number" min="0" step="0.01" inputmode="decimal" placeholder="${esc(t('fin_counted'))}"><button type="button" class="btn primary" id="fn-close">${esc(t('fin_close'))}</button></div>
+    <div class="row" style="gap:8px;flex-wrap:nowrap"><input id="fn-count" type="number" min="0" step="0.01" inputmode="decimal" placeholder="${esc(t('fin_counted'))}"><button type="button" class="btn primary" id="fn-close">🔒 ${esc(t('h_close_day'))}</button></div>
     <input id="fn-cnote" placeholder="${esc(t('note'))}">`;
   else body = `<div class="small muted">${esc(t('fin_closed_at'))} ${fmtTs(c.closed_at)} · ${esc(c.closed_by || '')}</div>
     <dl class="specs"><dt>${esc(t('fin_expected'))}</dt><dd class="num">${money(c.expected)}</dd><dt>${esc(t('fin_counted'))}</dt><dd class="num">${money(c.counted)}</dd><dt><b>${esc(t('fin_diff'))}</b></dt><dd class="num"><b style="color:${+c.difference < 0 ? 'var(--danger)' : +c.difference > 0 ? 'var(--warn)' : 'var(--green)'}">${money(c.difference)}</b></dd></dl>
@@ -2125,10 +2142,10 @@ function exportCsv(kind){
 }
 $('fn-from').onchange = $('fn-to').onchange = () => renderFin();
 $('fn-refresh').onclick = async () => { await Promise.all([reload('sales', 'rentals', 'products'), loadFin()]); renderFin(); };
-$('fn-body').onclick = async e => {
+const finClick = async e => {
   const cv = e.target.closest('[data-csv]'); if (cv) return exportCsv(cv.dataset.csv);
   const del = e.target.closest('[data-del-exp]');
-  if (del) return arm(del, async () => { try { await q(sb.from('expenses').delete().eq('id', del.dataset.delExp)); toast(t('deleted')); await loadFin(); renderFin(); } catch(err){ fail(err); } });
+  if (del) return arm(del, async () => { try { await q(sb.from('expenses').delete().eq('id', del.dataset.delExp)); toast(t('deleted')); await loadFin(); reFin(); } catch(err){ fail(err); } });
   const id = e.target.id, btn = e.target.closest('button'); if (!btn) return;
   try {
     if (id === 'fe-save') {
@@ -2136,18 +2153,20 @@ $('fn-body').onclick = async e => {
       if ($('fe-cat').value === 'other' && !$('fe-note').value.trim()) { toast(t('sr_need_note')); return; }
       btn.disabled = true;
       await q(sb.from('expenses').insert({ amount:amt, category:$('fe-cat').value, payment:$('fe-pay').value, note:$('fe-note').value.trim(), seller:S.user?.name || '' }));
-      toast(t('saved') + ' · ' + money(amt)); await loadFin(); renderFin();
+      toast(t('saved') + ' · ' + money(amt)); await loadFin(); reFin();
     } else if (id === 'fn-open') {
       const v = $('fn-open-amt').value; if (v === '' || +v < 0) { toast(t('fin_need_amt')); return; }
-      btn.disabled = true; await q(sb.rpc('cash_open', { p_opening:r2(v), p_note:'' })); await loadFin(); renderFin();
+      btn.disabled = true; await q(sb.rpc('cash_open', { p_opening:r2(v), p_note:'' })); await loadFin(); reFin();
     } else if (id === 'fn-close') {
       const v = $('fn-count').value; if (v === '' || +v < 0) { toast(t('fin_need_amt')); return; }
       btn.disabled = true; await reload('sales', 'rentals'); await loadFin();
       await q(sb.rpc('cash_close', { p_counted:r2(v), p_expected:cashFlow(dayKey(new Date())).expected, p_note:$('fn-cnote').value.trim() }));
-      await loadFin(); renderFin();
-    } else if (id === 'fn-reopen') { await q(sb.rpc('cash_reopen')); await loadFin(); renderFin(); }
+      await loadFin(); reFin(); toast(t('fin_closed') + ' · ' + t('fin_diff') + ': ' + money(+S.fin.cash?.difference || 0));
+    } else if (id === 'fn-reopen') { await q(sb.rpc('cash_reopen')); await loadFin(); reFin(); }
   } catch(err){ fail(err); btn.disabled = false; }
 };
+const reFin = () => S.tab === 'home' ? paintHomeCash() : renderFin();
+$('fn-body').onclick = finClick;
 /* stock change with a reason: received, write-off, damaged, correction … (kept in stock_moves) */
 function openStockAdjust(p, sign){
   openOv(`<h2>${esc(pName(p))}</h2><div class="small muted">${esc(t('in_stock_label'))}: <b class="num">${+p.qty || 0}</b></div>
@@ -2206,7 +2225,7 @@ function dayLangs(){ try { const v = JSON.parse(ls.get('er-day-langs') || 'null'
 function renderDayBanner(){
   const el = $('day-banner'); if (!el) return;
   if (!S.user || S.dayRep.ready !== true) { el.hidden = true; return; }
-  const today = dayKey(new Date()), y = dayShift(today, -1), sent = repOf(y);
+  const y = lastDay(), sent = repOf(y);
   if (sent) { el.hidden = false; el.className = 'daybar ok';
     el.innerHTML = `<span>✅ ${esc(t('day_started'))} · ${fmtTs(sent.sent_at)}${sent.seller ? ' · ' + esc(sent.seller) : ''}</span><button type="button" class="btn ghost small" data-dayrep="${y}">${esc(t('day_resend'))}</button>`; return; }
   el.hidden = false; el.className = 'daybar';
@@ -2214,7 +2233,7 @@ function renderDayBanner(){
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-dayrep]'); if (b) openDayReport(b.dataset.dayrep); });
 async function openDayReport(day){
-  day = day || dayShift(dayKey(new Date()), -1);
+  day = day || lastDay();
   openOv(`<div class="empty">${esc(t('loading'))}</div>`, 'wide');
   await Promise.all([reload('sales', 'rentals'), loadDayReps(), S.fin.ready ? null : loadFin()]);
   if (S.dayRep.ready !== true) { openOv(`<div class="row between"><h2>${esc(t('day_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div><p>${esc(t('fin_need_db'))}</p>`); return; }
@@ -2283,6 +2302,7 @@ const HOME_BACK = {};
 // the existing sale picker, cart and rental form are moved onto the home page (their buttons keep working) and back again
 function placeHome(on){
   document.documentElement.classList.toggle('athome', on);
+  if (!on && $('h-cash')) { $('h-cash').hidden = true; $('h-cash').innerHTML = ''; $('h-close').classList.remove('on'); }
   for (const [id, slot] of HOME_PARTS) {
     const el = $(id); if (!el) continue;
     if (!HOME_BACK[id]) HOME_BACK[id] = { parent:el.parentNode, next:el.nextSibling };
@@ -2309,8 +2329,8 @@ function renderHome(){
   // rented now: the three that are due back first
   const act = S.rentals.filter(r => r.status === 'active').sort((a, b) => String(a.ends_at || '9').localeCompare(String(b.ends_at || '9')));
   $('h-now-n').textContent = act.length || '';
-  $('h-now').innerHTML = act.length ? act.slice(0, 3).map(r => `<div class="hnowrow" data-id="${r.id}"><span class="hrow-n"><b>${esc(r.unit_label || tType(r.type))}</b><small>${esc(r.customer_name || '')}${dueLabel(r)}</small></span>
-      <button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div>`).join('')
+  $('h-now').innerHTML = act.length ? act.slice(0, 3).map(r => `<div class="hnowrow" data-id="${r.id}"><span class="hrow-n"><b>${esc(r.unit_label || tType(r.type))}</b><small>${esc(r.customer_name || '')}</small></span>
+      ${dueBadge(r)}<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div>`).join('')
       + (act.length > 3 ? `<button type="button" class="btn ghost small" data-go="rent">${esc(t('h_all_n').replace('{n}', act.length))}</button>` : '')
     : `<div class="small muted">${esc(t('nothing_rented'))}</div>`;
   // rented today: a card with the vehicle's photo
@@ -2318,7 +2338,7 @@ function renderHome(){
   $('h-rent-sum').textContent = rents.length ? money(rents.reduce((a, r) => a + rentSum(r), 0)) : '';
   $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0];
     return `<div class="hcard" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="tag ${r.status === 'active' ? '' : 'out'}">${esc(t(r.status === 'active' ? 'h_out' : 'h_back'))}</span></div>
-      <div class="hcard-b"><b>${esc(r.unit_label || tType(r.type))}</b><small>${esc(r.customer_name || '')} · ${fmtTs(r.created_at).slice(-5)}</small><span class="num">${money(rentSum(r))}</span></div>
+      <div class="hcard-b"><b>${esc(r.unit_label || tType(r.type))}</b><small>${esc(r.customer_name || '')} · ${fmtTs(r.created_at).slice(-5)}</small>${r.status === 'active' ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
       <div class="hcard-a">${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎 ${esc(t('send_files'))}</button><button type="button" class="btn ghost small" data-act="rrep">📤</button></div></div>`; }).join('')
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
 }
@@ -2333,7 +2353,22 @@ $('v-home').addEventListener('click', e => {
   else if (a === 'sendall') sendRentalFiles(r);
   else if (a === 'rrep') showReport('rental', rentalReportData(r));
 });
-$('h-close').onclick = () => closeShift();
+/* closing the day: the register card (expected cash, counted cash, note) unfolds right on the home page */
+function paintHomeCash(){
+  const box = $('h-cash'); if (!box || box.hidden) return;
+  if (!S.fin.ready) { box.innerHTML = `<div class="panel pad small">${esc(t(S.fin.ready === false ? 'fin_need_db' : 'loading'))}</div>`; return; }
+  $('fn-body').innerHTML = '';   // one copy of the register on the page (the same ids)
+  box.innerHTML = cashHtml(dayKey(new Date()));
+}
+$('h-cash').onclick = finClick;
+$('h-close').onclick = async () => {
+  const box = $('h-cash'), open = box.hidden;
+  box.hidden = !open; $('h-close').setAttribute('aria-expanded', open); $('h-close').classList.toggle('on', open);
+  if (!open) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="panel pad small">${esc(t('loading'))}</div>`;
+  await Promise.all([reload('sales', 'rentals'), loadFin()]);
+  paintHomeCash(); box.scrollIntoView({ behavior:'smooth', block:'start' }); $('fn-count')?.focus({ preventScroll:true });
+};
 document.querySelectorAll('.brand').forEach(b => { if (b.closest('#app')) { b.style.cursor = 'pointer'; b.title = t('tab_home'); b.onclick = () => go('home'); } });
 /* closing the shift: counted cash against what should be in the drawer */
 async function closeShift(){
@@ -2357,8 +2392,17 @@ async function closeShift(){
   };
 }
 /* after login: one button opens the register; yesterday's report goes to WhatsApp on the way */
+/* the last working day before today: the last one that was closed, else the last one opened, else yesterday */
+async function loadLastDay(){
+  const today = dayKey(new Date());
+  try { const rows = await q(sb.from('cash_sessions').select('day,closed_at,counted,expected').lt('day', today).order('day', { ascending:false }).limit(10)) || [];
+    S.lastCash = rows.find(r => r.closed_at) || rows[0] || null; }
+  catch(e){ S.lastCash = null; if (!missingFn(e)) console.error(e); }
+  S.lastDay = S.lastCash?.day || dayShift(today, -1);
+}
+const lastDay = () => S.lastDay || dayShift(dayKey(new Date()), -1);
 async function openGateCheck(){
-  try { await Promise.all([loadFin(), loadDayReps()]); } catch(e){ console.error(e); }
+  try { await Promise.all([loadFin(), loadDayReps(), loadLastDay()]); renderDayBanner(); } catch(e){ console.error(e); }
   if (!S.user || !S.fin.ready || S.dayRep.ready !== true || S.fin.cash) { $('opengate').hidden = true; return; }
   $('og-hi').textContent = t('og_hi').replace('{n}', S.user.name || '');
   $('og-skip').hidden = !isAdmin();
@@ -2366,10 +2410,11 @@ async function openGateCheck(){
 }
 $('og-skip').onclick = () => { $('opengate').hidden = true; };
 $('og-open').onclick = async () => {
-  const y = dayShift(dayKey(new Date()), -1), b = $('og-open');
-  if (repOf(y)) {           // yesterday's report already went out: the register just opens with its closing cash
+  const y = lastDay(), b = $('og-open');
+  if (repOf(y)) {           // that day's report already went out: the register just opens with the cash counted at closing
     b.disabled = true;
-    try { await q(sb.rpc('cash_open', { p_opening:r2(repOf(y).data?.closing_cash || 0), p_note:'' })); } catch(e){ if (!/already_open/.test(e?.message || '')) { fail(e); b.disabled = false; return; } }
+    const open = S.lastCash?.day === y && S.lastCash.counted != null ? +S.lastCash.counted : +(repOf(y).data?.closing_cash || 0);
+    try { await q(sb.rpc('cash_open', { p_opening:r2(open), p_note:'' })); } catch(e){ if (!/already_open/.test(e?.message || '')) { fail(e); b.disabled = false; return; } }
     b.disabled = false; S.fin.ready = null; await loadFin(); $('opengate').hidden = true; toast(t('og_opened')); render(); return;
   }
   S.onDayStarted = async () => { S.onDayStarted = null; await loadFin(); $('opengate').hidden = true; render(); };
@@ -2393,15 +2438,44 @@ async function rentalFiles(r){
   if (r.video) { try { const b = await q(sb.storage.from('rental-videos').download(r.video)), ext = String(r.video).split('.').pop() || 'mp4'; files.push(new File([b], `Video_${who}.${ext}`, { type:b.type || 'video/' + ext })); } catch(e){ console.error(e); } }
   return files;
 }
+/* the customer's phone as WhatsApp wants it: digits with the country code (Georgian 5xx xx xx xx gets 995) */
+const waNum = ph => { let d = String(ph || '').replace(/[^\d+]/g, ''); if (d.startsWith('+')) return d.slice(1).replace(/\D/g, ''); d = d.replace(/\D/g, '').replace(/^00/, ''); if (/^5\d{8}$/.test(d)) d = '995' + d; else if (/^0\d{9}$/.test(d)) d = '995' + d.slice(1); return d.length >= 8 ? d : ''; };
+const LINK_TTL = 7 * 864e2;   // links in the message work for 7 days
+/* a wa.me link to the customer's number with the signed agreement (PDF) and the hand-over video as links */
+async function custWaUrl(r){
+  const num = waNum(r.phone || S.customers.find(c => c.id === r.customer_id)?.phone); if (!num) throw new Error('no_phone');
+  const lg = r.contract?.lang || LANG, lines = [tL('wa_c_hi', lg).replace('{n}', r.customer_name || '')];
+  if (r.signature) {
+    const pdfPath = r.signature.replace(/\.png$/, '.pdf');
+    let s = await sb.storage.from('id-photos').createSignedUrl(pdfPath, LINK_TTL);
+    if (s.error || !s.data?.signedUrl) { await uploadBlob('id-photos', pdfPath, await contractPdf(r, lg), 'application/pdf'); s = await sb.storage.from('id-photos').createSignedUrl(pdfPath, LINK_TTL); }
+    if (s.data?.signedUrl) lines.push('📄 ' + tL('wa_c_contract', lg) + ':\n' + s.data.signedUrl);
+  }
+  if (r.video) { const v = await sb.storage.from('rental-videos').createSignedUrl(r.video, LINK_TTL); if (v.data?.signedUrl) lines.push('🎬 ' + tL('wa_c_video', lg) + ':\n' + v.data.signedUrl); }
+  const d = dueAt(r); if (d && !isNaN(d)) lines.push('⏰ ' + tL('return_by', lg) + ': ' + fmtTs(d));
+  lines.push(tL('wa_c_bye', lg));
+  return 'https://wa.me/' + num + '?text=' + encodeURIComponent(lines.join('\n\n'));
+}
+/* a button that becomes ready once the links are made (so the tap opens WhatsApp straight away) */
+function armCustWa(id, r){
+  const b = $(id); if (!b) return;
+  const num = waNum(r.phone || S.customers.find(c => c.id === r.customer_id)?.phone);
+  if (!num) { b.classList.add('off'); b.removeAttribute('href'); b.onclick = e => { e.preventDefault(); toast(t('wa_c_nophone')); }; return; }
+  b.querySelector('small').textContent = '+' + num;
+  b.onclick = e => { if (!b.href) { e.preventDefault(); toast(t('sf_preparing')); } };
+  custWaUrl(r).then(u => { if ($(id) === b) { b.href = u; b.classList.remove('wait'); } }).catch(e => { console.error(e); b.classList.add('off'); b.onclick = ev => { ev.preventDefault(); toast(t('wa_c_fail')); }; });
+}
+const custWaBtn = (id, big) => `<a class="btn ${big ? 'primary big' : ''} wabtn wait" id="${id}" target="_blank" rel="noopener">💬 ${esc(t('wa_c_btn'))} <small></small></a>`;
 const fileKb = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 /* files are fetched first; the button then hands them to the phone's share sheet (WhatsApp …) in one tap */
 function sendRentalFiles(r){
   openOv(`<div class="row between"><h2>📎 ${esc(t('send_files_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
     <div class="small muted">${esc(r.customer_name || '')} · ${esc(r.unit_label || tType(r.type))} · ${fmtTs(r.created_at)}</div>
+    ${custWaBtn('sf-wa', true)}
     <div id="sf-list" class="sflist"><div class="muted">${esc(t('sf_preparing'))}</div></div>
-    <button type="button" class="btn primary big" id="sf-send" disabled>📤 ${esc(t('sf_send'))}</button>
+    <button type="button" class="btn big" id="sf-send" disabled>📤 ${esc(t('sf_send'))}</button>
     <button type="button" class="btn" id="sf-dl" disabled>⬇️ ${esc(t('sf_download'))}</button>`);
-  let files = [];
+  let files = []; armCustWa('sf-wa', r);
   rentalFiles(r).then(f => {
     files = f; if (!$('sf-list')) return;
     const icon = x => x.type === 'application/pdf' ? '📄' : x.type.startsWith('video') ? '🎬' : '🖼';
