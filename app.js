@@ -41,7 +41,7 @@ function rateLabel(r, lg = LANG){
   return r.n + ' ' + w;
 }
 function applyI18n(){
-  document.documentElement.lang = LANG;
+  document.documentElement.lang = LANG; document.title = 'Easyride ' + t('fin_cash');
   document.querySelectorAll('[data-i]').forEach(el => el.textContent = t(el.dataset.i));
   document.querySelectorAll('[data-iph]').forEach(el => el.placeholder = t(el.dataset.iph));
   document.querySelectorAll('[data-i-title]').forEach(el => { el.title = t(el.dataset.iTitle); el.setAttribute('aria-label', el.title); });
@@ -49,7 +49,7 @@ function applyI18n(){
   ['c-pay','r-pay','r-dep-pay'].forEach(id => { const v = $(id).value; $(id).innerHTML = PAYS.filter(p => id === 'c-pay' || p !== 'installment').map(p => `<option value="${p}" ${p===v?'selected':''}>${esc(tPay(p))}</option>`).join(''); });
   document.querySelectorAll('select.pillsel').forEach(paintPills);
 }
-function setLang(l){ LANG = l; ls.set('er-lang', l); applyI18n(); if (S.user) renderAll(); else renderGate(); }
+function setLang(l){ LANG = l; ls.set('er-lang', l); applyI18n(); if (S.user) { renderAll(); ['c-cust','r-cust'].forEach(id => mountPicker(id, true)); renderVideo(); renderDayBanner(); { const v = [$('fn-count')?.value, $('fn-cnote')?.value]; paintHomeCash(); if ($('fn-count') && v[0]) $('fn-count').value = v[0]; if ($('fn-cnote') && v[1]) $('fn-cnote').value = v[1]; } if (!$('opengate').hidden) $('og-hi').textContent = t('og_hi').replace('{n}', S.user.name || ''); } else renderGate(); }
 $('lang-g').onchange = e => setLang(e.target.value);
 $('lang-a').onchange = e => setLang(e.target.value);
 
@@ -105,7 +105,21 @@ const normQ = x => String(x || '').toLowerCase().replace(/[\s-]/g, '');
 const normCode = x => normQ(x).replace(/^0+(?=[0-9a-z])/, '');
 const codeHit = (p, qq) => !!p.code && !!normCode(qq) && normCode(p.code) === normCode(qq);
 const byCode = (qq, avail) => (avail || S.products).find(p => codeHit(p, qq));
-const pMeta = p => [tType(p.type), p.year, p.color, p.engine].filter(Boolean).join(' · ');
+/* colours and vehicle kinds typed in Georgian (data) shown in the chosen language; names of people and goods stay as written */
+const KA_DATA = { 'ვერცხლისფერი':['Silver','Серебристый','シルバー'], 'წითელი':['Red','Красный','赤'], 'მწვანე':['Green','Зелёный','緑'], 'შავი':['Black','Чёрный','黒'],
+  'თეთრი':['White','Белый','白'], 'ლურჯი':['Blue','Синий','青'], 'ცისფერი':['Light blue','Голубой','水色'], 'ყვითელი':['Yellow','Жёлтый','黄'], 'ნაცრისფერი':['Grey','Серый','グレー'],
+  'მუქი ნაცრისფერი':['Dark grey','Тёмно-серый','ダークグレー'], 'ღია ნაცრისფერი':['Light grey','Светло-серый','ライトグレー'], 'მუქი':['Dark','Тёмный','ダーク'], 'ღია':['Light','Светлый','ライト'],
+  'ყავისფერი':['Brown','Коричневый','茶色'], 'ნარინჯისფერი':['Orange','Оранжевый','オレンジ'], 'ვარდისფერი':['Pink','Розовый','ピンク'], 'იისფერი':['Purple','Фиолетовый','紫'],
+  'ოქროსფერი':['Gold','Золотистый','ゴールド'], 'კრემისფერი':['Cream','Кремовый','クリーム'], 'ბეჟი':['Beige','Бежевый','ベージュ'], 'მოვერცხლისფრო':['Silver','Серебристый','シルバー'],
+  'გარბენი':['Mileage','Пробег','走行距離'], 'ძრავი':['Engine','Двигатель','エンジン'], 'საბურავები':['Tyres','Шины','タイヤ'] };
+let KA_ALL = null;
+function locData(s){
+  if (s == null || !li() || !/[\u10D0-\u10FF]/.test(s)) return s;
+  if (!KA_ALL) { KA_ALL = { ...KA_DATA }; for (const [k, v] of Object.entries(L)) if (/^t_/.test(k) && Array.isArray(v) && v[0]) KA_ALL[v[0]] = v.slice(1); }
+  const one = w => KA_ALL[w]?.[li() - 1] ?? KA_ALL[w.toLowerCase()]?.[li() - 1];
+  return String(s).replace(/[\u10D0-\u10FF]+(?:[ -][\u10D0-\u10FF]+)*/g, m => one(m) ?? m.split(/([ -])/).map(w => one(w) ?? w).join(''));
+}
+const pMeta = p => [tType(p.type), p.year, locData(p.color), p.engine].filter(Boolean).join(' · ');
 const fleetLabel = f => [f.model, f.color, f.number ? '#' + f.number : ''].filter(Boolean).join(' · ');
 const sellerOpts = sel => (S.settings.sellers || []).map(s => `<option ${s===sel?'selected':''}>${esc(s)}</option>`).join('') || '<option value="">—</option>';
 
@@ -319,7 +333,7 @@ function showGallery(p, fromSale){
   const facts = [
     ['f_type', tType(p.type)], ['f_brand', p.brand], ['f_year', p.year],
     ...(veh ? [['f_mileage', !mile ? '—' : /^\d[\d\s]*$/.test(mile) ? `${mile.replace(/\s/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} ${t('km')}` : mile]] : []),
-    ['f_color', p.color], ['f_engine', p.engine], [veh ? 'vin_l' : 'f_code', p.code], ['in_stock_label', `${+p.qty || 0} ${t('pcs')}`]
+    ['f_color', locData(p.color)], ['f_engine', p.engine], [veh ? 'vin_l' : 'f_code', p.code], ['in_stock_label', `${+p.qty || 0} ${t('pcs')}`]
   ].filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '');
   const specs = Object.entries(p.specs || {}).filter(([k, v]) => v && k !== MILE_K);
   openOv(`<div class="row between" style="flex-wrap:nowrap;align-items:flex-start"><h2>${plateOf(p) ? `<span class="plate">${esc(plateOf(p))}</span> ` : ''}${esc(pName(p))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
@@ -330,7 +344,7 @@ function showGallery(p, fromSale){
       <div class="pdet-info">
         <div class="pdet-price num">${+p.price ? money(p.price) : esc(t('negotiable'))}</div>
         <dl class="specs pdet-facts">${facts.map(([k, v]) => `<dt>${esc(t(k))}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-        ${specs.length ? `<h3 style="margin:6px 0 0">${esc(t('specs_title'))}</h3><dl class="specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+        ${specs.length ? `<h3 style="margin:6px 0 0">${esc(t('specs_title'))}</h3><dl class="specs">${specs.map(([k, v]) => `<dt>${esc(locData(k))}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
         ${p.note ? `<p class="small" style="color:var(--warn);margin:0">${esc(p.note)}</p>` : ''}
         ${p.source_url ? `<a class="small" href="${esc(p.source_url)}" target="_blank" rel="noopener">${esc(t('view_site'))} ↗</a>` : ''}
         <div class="row" style="gap:8px;margin-top:auto">${fromSale ? `<button type="button" class="btn primary big" id="pd-add" ${left > 0 ? '' : 'disabled'} style="flex:1;width:auto">${esc(t(left > 0 ? 'add_to_sale' : 'out'))}</button>` : ''}
@@ -769,11 +783,11 @@ function renderSimplePick(){
   if (!types.includes(S.spType)) S.spType = types[0] || '';
   $('sp-type').innerHTML = types.map(k => `<option value="${k}" ${k === S.spType ? 'selected' : ''}>${esc(tType(k))} (${avail.filter(p => p.type === k).length})</option>`).join('') || `<option value="">—</option>`;
   const list = avail.filter(p => p.type === S.spType && match(p, qq)).sort((x, y) => (plateOf(x) ? 0 : 1) - (plateOf(y) ? 0 : 1) || plateOf(x).localeCompare(plateOf(y), undefined, { numeric:true }) || pName(x).localeCompare(pName(y)));
-  $('sp-model').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([plateOf(p), pName(p), p.color, p.year].filter(Boolean).join(' · '))} — ${+p.price ? money(p.price) : esc(t('negotiable'))}</option>`).join('');
+  $('sp-model').innerHTML = `<option value="">${esc(t('sp_choose'))} (${list.length})</option>` + list.map(p => `<option value="${p.id}">${esc([plateOf(p), pName(p), locData(p.color), p.year].filter(Boolean).join(' · '))} — ${+p.price ? money(p.price) : esc(t('negotiable'))}</option>`).join('');
   // the vehicles as photo tiles too, like the items: tap = add to the sale, 🔍 = big photo and details
   $('sp-vgrid').innerHTML = list.slice(0, 120).map(p => { const ph = p.photos?.[0];
     return `<div class="etile" data-id="${p.id}" role="button" tabindex="0"><div class="eti">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : '<span>🛵</span>'}<button type="button" class="etz" data-gal="${p.id}" aria-label="${esc(t('details'))}">🔍</button></div>
-      <div class="etb"><span class="num etc">${esc(plateOf(p) || p.year || '')}</span><span class="etn">${esc(pName(p))}</span><span class="small muted">${esc([p.color, plateOf(p) ? p.year : ''].filter(Boolean).join(' · '))}</span><span class="num etp">${+p.price ? money(p.price) : esc(t('negotiable'))}</span></div></div>`; }).join('');
+      <div class="etb"><span class="num etc">${esc(plateOf(p) || p.year || '')}</span><span class="etn">${esc(pName(p))}</span><span class="small muted">${esc([locData(p.color), plateOf(p) ? p.year : ''].filter(Boolean).join(' · '))}</span><span class="num etp">${+p.price ? money(p.price) : esc(t('negotiable'))}</span></div></div>`; }).join('');
 }
 $('sp-type').onchange = e => { S.spType = e.target.value; renderSale(); };
 ['sp-model','sp-item'].forEach(id => $(id).onchange = e => { const v = e.target.value; if (!v) return; addToCart(v); e.target.value = ''; });
@@ -791,7 +805,7 @@ const erowHtml = p => { const left = leftOf(p);
   const ph = p.photos?.[0];
   return `<div class="erow ${left <= 0 ? 'dis' : ''}" data-id="${p.id}" role="button" tabindex="${left <= 0 ? -1 : 0}" aria-disabled="${left <= 0}">
         <button type="button" class="eph" data-gal="${p.id}" aria-label="${esc(t('details'))}">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : '<span>📦</span>'}</button>
-        <span class="code num">${esc(p.code || '—')}</span><span class="nm">${esc(pName(p))}${p.color ? ` <span class="muted small">${esc(p.color)}</span>` : ''}</span>
+        <span class="code num">${esc(p.code || '—')}</span><span class="nm">${esc(pName(p))}${p.color ? ` <span class="muted small">${esc(locData(p.color))}</span>` : ''}</span>
         <span class="num pr">${+p.price ? money(p.price) : '—'}</span><span class="tag ${left <= 0 ? 'out' : left <= 1 ? 'low' : ''}">${left <= 0 ? esc(t('out')) : left + ' ' + esc(t('pcs'))}</span>
         ${isAdmin() ? `<button type="button" class="btn ghost small" data-edit="${p.id}">${esc(t('edit'))}</button>` : ''}</div>`; };
 const pcardHtml = p => { const left = leftOf(p);
@@ -1099,12 +1113,12 @@ function renderRent(){
   const lateTag = r => { const l = lateCalc(r); return l.fee ? `<div class="small due late num">+${money(l.fee)} · ${l.hours} ${esc(t('hours_short'))}</div>` : ''; };
   const cBtn = r => (r.contract ? `<button class="btn ghost small" data-act="contract">${esc(t('contract_view'))}</button><button class="btn ghost small" data-act="cshare">📤 ${esc(t('contract_share_btn'))}</button>` : '') + (r.signature ? `<button class="btn ghost small" data-act="sig">✍️ ${esc(t('signature'))}</button>` : '') + (r.video ? `<button class="btn ghost small" data-act="video">🎥 ${esc(t('video_short'))}</button>` : '');
   const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
-  $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}
+  $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(locData(r.unit_label))}` : ''} · ${esc(rateLabel(r.rate))}
       <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit, r.deposit_currency || 'GEL')}${r.deposit_payment ? ' · ' + esc(tPay(r.deposit_payment)) : ''}` : ''}</div>${cBtn(r)}${eBtn()}</div>
       <div style="text-align:right">${dueBadge(r)}<div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
     : `<div class="empty small">${esc(t('nothing_rented'))}</div>`;
   const done = S.rentals.filter(r => r.status === 'returned').slice(0, 50);
-  $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(rentSum(r))}${+r.late_fee ? `<div class="small due late">+${money(r.late_fee)}</div>` : ''}</td><td style="white-space:nowrap">${cBtn(r)}${eBtn()}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
+  $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(locData(r.unit_label))}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(rentSum(r))}${+r.late_fee ? `<div class="small due late">+${money(r.late_fee)}</div>` : ''}</td><td style="white-space:nowrap">${cBtn(r)}${eBtn()}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
 }
 function setEnd(force){
   const el = $('r-end'), x = curTariff(), r = x?.rates?.[+$('r-rate').value];
@@ -1134,7 +1148,7 @@ function unitOptions(type){
 function fillUnits(){
   const x = curTariff(), cur = $('r-unit').value;
   const { busy, groups } = x ? unitOptions(x.type) : { busy:new Set(), groups:[] };
-  $('r-unit').innerHTML = `<option value="">${esc(t('choose_unit'))}</option>` + groups.map(([g, list]) => `<optgroup label="${esc(t(g))}">${list.map(u => `<option value="${u.key}" ${busy.has(u.key) ? 'disabled' : ''} ${u.key === cur && !busy.has(u.key) ? 'selected' : ''}>${esc(u.label)}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`).join('')}</optgroup>`).join('');
+  $('r-unit').innerHTML = `<option value="">${esc(t('choose_unit'))}</option>` + groups.map(([g, list]) => `<optgroup label="${esc(t(g))}">${list.map(u => `<option value="${u.key}" ${busy.has(u.key) ? 'disabled' : ''} ${u.key === cur && !busy.has(u.key) ? 'selected' : ''}>${esc(locData(u.label))}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`).join('')}</optgroup>`).join('');
   drawExtraUnits();
   $('r-unit-hint').hidden = groups.length > 0; $('r-unit-hint').textContent = t(($('r-unit-q').value || '').trim() ? 'nothing_found' : x?.type === 'moped' ? 'unit_none_vin' : 'unit_none');
 }
@@ -1144,7 +1158,7 @@ let XU = [];
 function unitOptHtml(cur, taken){
   const x = curTariff(); const { busy, groups } = x ? unitOptions(x.type) : { busy:new Set(), groups:[] };
   return `<option value="">${esc(t('choose_unit'))}</option>` + groups.map(([g, list]) => `<optgroup label="${esc(t(g))}">${list.map(u => { const off = busy.has(u.key) || (taken.has(u.key) && u.key !== cur);
-    return `<option value="${u.key}" ${off ? 'disabled' : ''} ${u.key === cur ? 'selected' : ''}>${esc(u.label)}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`; }).join('')}</optgroup>`).join('');
+    return `<option value="${u.key}" ${off ? 'disabled' : ''} ${u.key === cur ? 'selected' : ''}>${esc(locData(u.label))}${busy.has(u.key) ? ' — ' + esc(t('rented_tag')) : ''}</option>`; }).join('')}</optgroup>`).join('');
 }
 function drawExtraUnits(){
   const box = $('r-units-x'); if (!box) return;
@@ -1469,7 +1483,7 @@ async function openReturn(r){
   try { const v = await q(sb.rpc('rental_late', { p_id:r.id })); if (v) late = v; } catch(e){ console.error(e); }
   const fee = +late.fee || 0, row = (k, v) => v ? `<div class="kv"><span class="muted">${esc(t(k))}</span><b class="num">${v}</b></div>` : '';
   openOv(`<div class="row between"><h2>${esc(t('return_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
-    <div><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(r.unit_label)}` : ''} · ${esc(rateLabel(r.rate))}<div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')}</div></div>
+    <div><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(locData(r.unit_label))}` : ''} · ${esc(rateLabel(r.rate))}<div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')}</div></div>
     <div class="stack" style="gap:4px">${row('started', fmtTs(r.created_at))}${row('return_by', r.ends_at ? fmtTs(r.ends_at) : '')}${row('returned_at', fmtTs(new Date()))}${row('rent_fee', money(r.price))}</div>
     ${fee ? `<div class="latebox stack">
         <div class="row between"><b>${esc(t('late_by'))} ${late.hours} ${esc(t('hours_short'))}</b><b class="num">+${money(fee)}</b></div>
@@ -1999,7 +2013,7 @@ function logLine(e, saleTx){
   const ch = Object.keys(d).filter(k => k !== '_row' && !LOG_SKIP.includes(k) && d[k] && typeof d[k] === 'object' && !Array.isArray(d[k]) && 'to' in d[k]);
   const diff = ch.map(k => `${esc(LOGF[k] ? t(LOGF[k]) : k)}: ${esc(logVal(k, d[k].from))} → <b>${esc(logVal(k, d[k].to))}</b>`).join(' · ');
   const L = (icon, label, rest) => ({ e, icon:IC[icon], text:`${esc(t(label))}${rest ? ': ' + rest : ''}` });
-  const veh = r => esc([tType(r.type), r.unit_label].filter(Boolean).join(' · '));
+  const veh = r => esc([tType(r.type), locData(r.unit_label)].filter(Boolean).join(' · '));
   switch (e.tbl + ':' + e.action) {
     case ':login': return L('login', 'log_login');
     case 'sales:insert': return L('sale', 'log_sale', `${esc((d.lines || []).map(l => l.name + (+l.qty > 1 ? ' ×' + l.qty : '')).join(', '))} — <b>${money(d.total)}</b>${d.customer_name ? ' · ' + esc(d.customer_name) : ''}`);
@@ -2091,7 +2105,7 @@ function dashHtml(a, b, inR){
   const noPrice = inStock.filter(p => !+p.price).length;
   return `<div class="stats">${tile('rs_sales_rev', moneyMulti(rev))}${tile('rs_rent_rev', money(rentRev))}${tile('fin_expenses', moneyMulti(expSum))}${tile('fin_net', money(net), net < 0 ? 'neg' : '', esc(t('fin_net_hint')))}</div>
   <div class="stats">${tile('fin_dep_held', moneyMulti(held), '', esc(t('fin_dep_hint')) + ' · ' + active.filter(r => +r.deposit).length)}${tile('fin_overdue', String(overdue.length), overdue.length ? 'neg' : '')}${tile('fin_stock_val', money(val), '', `${vehN} ${esc(t('kind_veh'))}${noPrice ? ' · ' + noPrice + ' ' + esc(t('fin_no_price')) : ''}`)}${tile('fin_low', String(low.length))}</div>
-  ${overdue.length ? `<div class="panel"><div class="pad"><h3>${esc(t('fin_overdue'))}</h3></div><div class="tw"><table><tbody>${overdue.map(r => `<tr><td>${esc(r.unit_label || '')}</td><td>${esc(r.customer_name || '')} <span class="muted small">${esc(r.phone || '')}</span></td><td class="num"><span class="due late">${fmtTs(r.ends_at)}</span></td><td class="r num">${+r.deposit ? money(r.deposit, r.deposit_currency) : ''}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+  ${overdue.length ? `<div class="panel"><div class="pad"><h3>${esc(t('fin_overdue'))}</h3></div><div class="tw"><table><tbody>${overdue.map(r => `<tr><td>${esc(locData(r.unit_label || ''))}</td><td>${esc(r.customer_name || '')} <span class="muted small">${esc(r.phone || '')}</span></td><td class="num"><span class="due late">${fmtTs(r.ends_at)}</span></td><td class="r num">${+r.deposit ? money(r.deposit, r.deposit_currency) : ''}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
   ${low.length ? `<div class="panel"><div class="pad"><h3>${esc(t('fin_low'))}</h3></div><div class="pad small">${low.map(p => `<span class="tag low">${esc(p.code ? p.code + ' · ' : '')}${esc(pName(p))}</span>`).join(' ')}</div></div>` : ''}
   <div class="panel pad row" style="gap:8px;flex-wrap:wrap"><b style="margin-right:auto">${esc(t('fin_export'))}</b>
     <button type="button" class="btn small" data-csv="sales">⬇ ${esc(t('tab_sale'))}</button><button type="button" class="btn small" data-csv="rentals">⬇ ${esc(t('tab_rent'))}</button><button type="button" class="btn small" data-csv="expenses">⬇ ${esc(t('fin_expenses'))}</button></div>`;
@@ -2329,7 +2343,7 @@ function renderHome(){
   // rented now: the three that are due back first
   const act = S.rentals.filter(r => r.status === 'active').sort((a, b) => String(a.ends_at || '9').localeCompare(String(b.ends_at || '9')));
   $('h-now-n').textContent = act.length || '';
-  $('h-now').innerHTML = act.length ? act.slice(0, 3).map(r => `<div class="hnowrow" data-id="${r.id}"><span class="hrow-n"><b>${esc(r.unit_label || tType(r.type))}</b><small>${esc(r.customer_name || '')}</small></span>
+  $('h-now').innerHTML = act.length ? act.slice(0, 3).map(r => `<div class="hnowrow" data-id="${r.id}"><span class="hrow-n"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}</small></span>
       ${dueBadge(r)}<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div>`).join('')
       + (act.length > 3 ? `<button type="button" class="btn ghost small" data-go="rent">${esc(t('h_all_n').replace('{n}', act.length))}</button>` : '')
     : `<div class="small muted">${esc(t('nothing_rented'))}</div>`;
@@ -2338,7 +2352,7 @@ function renderHome(){
   $('h-rent-sum').textContent = rents.length ? money(rents.reduce((a, r) => a + rentSum(r), 0)) : '';
   $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0];
     return `<div class="hcard" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="tag ${r.status === 'active' ? '' : 'out'}">${esc(t(r.status === 'active' ? 'h_out' : 'h_back'))}</span></div>
-      <div class="hcard-b"><b>${esc(r.unit_label || tType(r.type))}</b><small>${esc(r.customer_name || '')} · ${fmtTs(r.created_at).slice(-5)}</small>${r.status === 'active' ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
+      <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')} · ${fmtTs(r.created_at).slice(-5)}</small>${r.status === 'active' ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
       <div class="hcard-a">${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎 ${esc(t('send_files'))}</button><button type="button" class="btn ghost small" data-act="rrep">📤</button></div></div>`; }).join('')
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
 }
@@ -2369,7 +2383,7 @@ $('h-close').onclick = async () => {
   await Promise.all([reload('sales', 'rentals'), loadFin()]);
   paintHomeCash(); box.scrollIntoView({ behavior:'smooth', block:'start' }); $('fn-count')?.focus({ preventScroll:true });
 };
-document.querySelectorAll('.brand').forEach(b => { if (b.closest('#app')) { b.style.cursor = 'pointer'; b.title = t('tab_home'); b.onclick = () => go('home'); } });
+document.querySelectorAll('.brand').forEach(b => { if (b.closest('#app')) { b.style.cursor = 'pointer'; b.dataset.iTitle = 'tab_home'; b.title = t('tab_home'); b.onclick = () => go('home'); } });
 /* closing the shift: counted cash against what should be in the drawer */
 async function closeShift(){
   await Promise.all([reload('sales', 'rentals'), loadFin()]);
@@ -2470,7 +2484,7 @@ const fileKb = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1,
 /* files are fetched first; the button then hands them to the phone's share sheet (WhatsApp …) in one tap */
 function sendRentalFiles(r){
   openOv(`<div class="row between"><h2>📎 ${esc(t('send_files_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
-    <div class="small muted">${esc(r.customer_name || '')} · ${esc(r.unit_label || tType(r.type))} · ${fmtTs(r.created_at)}</div>
+    <div class="small muted">${esc(r.customer_name || '')} · ${esc(locData(r.unit_label) || tType(r.type))} · ${fmtTs(r.created_at)}</div>
     ${custWaBtn('sf-wa', true)}
     <div id="sf-list" class="sflist"><div class="muted">${esc(t('sf_preparing'))}</div></div>
     <button type="button" class="btn big" id="sf-send" disabled>📤 ${esc(t('sf_send'))}</button>
