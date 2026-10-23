@@ -75,7 +75,7 @@ window.ER_REPORT = (function () {
       line(w.start, r.start), line(w.end, r.end), line(w.seller, r.seller)]);
   }
   function build(kind, data, langs) {
-    const blocks = langs.filter(l => W[l]).map(lg => `${FLAG[lg]}\n${kind === 'rental' ? rental(lg, data) : sale(lg, data)}`);
+    const blocks = langs.filter(l => W[l]).map(lg => `${FLAG[lg]}\n${fix(kind === 'rental' ? rental(lg, data) : sale(lg, data), lg)}`);
     return `${HEAD}\n\n${blocks.join('\n\n')}`;
   }
 
@@ -125,7 +125,10 @@ window.ER_REPORT = (function () {
   }
   function day(d, langs) {
     const ls = langs.filter(l => D[l]);
-    return ls.map((lg, i) => (ls.length > 1 ? `${FLAG[lg]}\n\n` : '') + dayOne(lg, d)).join('\n\n⸻\n\n');
+    return ls.map((lg, i) => (ls.length > 1 ? `${FLAG[lg]}\n\n` : '') + fix(dayOne(lg, d), lg)).join('\n\n⸻\n\n');
   }
-  return { build, day, FLAG, langs: Object.keys(W) };
+  /* blocks for other languages must not carry Georgian letters: app.js translates colours / kinds and writes names in Latin */
+  const fix = (s, lg) => lg !== 'ka' && typeof api.localize === 'function' ? api.localize(s, lg) : s;
+  const api = { build, day, FLAG, langs: Object.keys(W), localize: null };
+  return api;
 })();

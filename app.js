@@ -113,12 +113,19 @@ const KA_DATA = { 'ვერცხლისფერი':['Silver','Серебр
   'ოქროსფერი':['Gold','Золотистый','ゴールド'], 'კრემისფერი':['Cream','Кремовый','クリーム'], 'ბეჟი':['Beige','Бежевый','ベージュ'], 'მოვერცხლისფრო':['Silver','Серебристый','シルバー'],
   'გარბენი':['Mileage','Пробег','走行距離'], 'ძრავი':['Engine','Двигатель','エンジン'], 'საბურავები':['Tyres','Шины','タイヤ'] };
 let KA_ALL = null;
-function locData(s){
-  if (s == null || !li() || !/[\u10D0-\u10FF]/.test(s)) return s;
+function locData(s, lg){
+  const ix = lg ? langIdx(lg) : li();
+  if (s == null || !ix || !/[\u10D0-\u10FF]/.test(s)) return s;
   if (!KA_ALL) { KA_ALL = { ...KA_DATA }; for (const [k, v] of Object.entries(L)) if (/^t_/.test(k) && Array.isArray(v) && v[0]) KA_ALL[v[0]] = v.slice(1); }
-  const one = w => KA_ALL[w]?.[li() - 1] ?? KA_ALL[w.toLowerCase()]?.[li() - 1];
+  const one = w => KA_ALL[w]?.[ix - 1] ?? KA_ALL[w.toLowerCase()]?.[ix - 1];
   return String(s).replace(/[\u10D0-\u10FF]+(?:[ -][\u10D0-\u10FF]+)*/g, m => one(m) ?? m.split(/([ -])/).map(w => one(w) ?? w).join(''));
 }
+/* Georgian letters left in a report for another language (names, notes) are written in Latin letters */
+const KA_LAT = { 'ა':'a','ბ':'b','გ':'g','დ':'d','ე':'e','ვ':'v','ზ':'z','თ':'t','ი':'i','კ':'k','ლ':'l','მ':'m','ნ':'n','ო':'o','პ':'p','ჟ':'zh','რ':'r','ს':'s','ტ':'t','უ':'u','ფ':'p','ქ':'k','ღ':'gh','ყ':'q','შ':'sh','ჩ':'ch','ც':'ts','ძ':'dz','წ':'ts','ჭ':'ch','ხ':'kh','ჯ':'j','ჰ':'h' };
+const kaLatin = s => String(s).replace(/[\u10D0-\u10FF]+/g, w => { const l = [...w].map(ch => KA_LAT[ch] ?? '').join(''); return l.charAt(0).toUpperCase() + l.slice(1); });
+/* a nationality typed as a Georgian country name → its code, so every language gets its own name */
+const natCode = n => { const s = String(n || '').trim(); if (!/[\u10D0-\u10FF]/.test(s)) return s; const hit = Object.entries(window.ER_COUNTRY_KA || {}).find(([, v]) => v === s); return hit ? hit[0] : s; };
+if (window.ER_REPORT) window.ER_REPORT.localize = (s, lg) => kaLatin(locData(s, lg));
 const pMeta = p => [tType(p.type), p.year, locData(p.color), p.engine].filter(Boolean).join(' · ');
 const fleetLabel = f => [f.model, f.color, f.number ? '#' + f.number : ''].filter(Boolean).join(' · ');
 const sellerOpts = sel => (S.settings.sellers || []).map(s => `<option ${s===sel?'selected':''}>${esc(s)}</option>`).join('') || '<option value="">—</option>';
@@ -1562,7 +1569,7 @@ const fmtShort = ts => { const d = new Date(ts); return isNaN(d) ? '' : `${pad(d
 const repMoney = cur => n => { const v = r2(n); return `${v.toLocaleString('en-US', { maximumFractionDigits:2 })} ${cur === 'GEL' ? 'GEL' : cur}`; };
 function saleReportData({ lines, total, extra, payment, seller, cust, note, date, currency }){
   const m = repMoney(currency || 'GEL');
-  return { date:fmtD(date), money:m, total, discount:+extra || 0, seller, note, buyer:cust?.name || '', nat:cust?.nationality || '',
+  return { date:fmtD(date), money:m, total, discount:+extra || 0, seller, note, buyer:cust?.name || '', nat:natCode(cust?.nationality),
     payLabel: lg => payment ? tL('pay_' + payment, lg) : '',
     lines: (lines || []).map(l => { const p = S.products.find(x => x.id === l.product_id); const qty = +l.qty || 1, price = +l.unit_price || 0;
       return { name:l.name, code:p?.code || l.code || '', vin:l.vin || '', veh:VEH.includes(l.type), qty, price, sum:r2(l.total ?? qty * price), typeLabel: lg => tL('t_' + l.type, lg) }; }) };
@@ -1572,7 +1579,7 @@ function rentalReportData(r){
   const c = S.customers.find(x => x.id === r.customer_id) || {}, raw = r.contract?.raw || {};
   return { item: lg => [tL('t_' + r.type, lg), r.unit_label].filter(Boolean).join(' · '), period: lg => rateLabel(r.rate, lg),
     fee: repMoney('GEL')(r.price), payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? lg => repMoney(r.deposit_currency || 'GEL')(r.deposit) + (r.deposit_payment ? ' · ' + tL('pay_' + r.deposit_payment, lg) : '') : '',
-    cust: r.customer_name || c.name || '', tel: r.phone || c.phone || '', nat: c.nationality || raw.nat || '',
+    cust: r.customer_name || c.name || '', tel: r.phone || c.phone || '', nat: natCode(c.nationality || raw.nat),
     docPhoto: !!c.photo, signed: !!r.contract, video: !!r.video, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
 }
 function repLangs(){ try { const v = JSON.parse(ls.get('er-rep-langs') || 'null'); if (Array.isArray(v) && v.length) return v; } catch(e){} return ['en', 'ja']; }
