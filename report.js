@@ -69,7 +69,7 @@ window.ER_REPORT = (function () {
   /* r: { item(lg), period(lg), fee, payLabel(lg), deposit, cust, tel, nat, start, end, docPhoto, signed, seller } */
   function rental(lg, r) {
     const w = W[lg];
-    return join([r.today ? w.rentReq : w.rentOn(r.date), line(w.item, r.item(lg)), line(w.period, r.period(lg)), line(w.fee, r.fee), r.late ? line(w.late, `${r.late.hours} ${w.h} — +${r.late.fee} (${w.total}: ${r.late.total})`) : '', line(w.pay, r.payLabel(lg)),
+    return join([r.today ? w.rentReq : w.rentOn(r.date), line(w.item, r.item(lg)), line(w.period, r.period(lg)), line(w.fee, r.fee), line(w.disc, r.disc), r.late ? line(w.late, `${r.late.hours} ${w.h} — +${r.late.fee} (${w.total}: ${r.late.total})`) : '', line(w.pay, r.payLabel(lg)),
       line(w.dep, typeof r.deposit === 'function' ? r.deposit(lg) : r.deposit), line(w.cust, r.cust), line(w.tel, r.tel), line(w.nat, country(r.nat, lg)),
       r.docPhoto ? line(w.doc, w.docTaken) : '', r.signed ? line(w.agr, w.agrSigned) : '', r.video ? line(w.vid, w.vidTaken) : '',
       line(w.start, r.start), line(w.end, r.end), line(w.seller, r.seller)]);

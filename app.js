@@ -846,9 +846,11 @@ $('s-custom').onclick = () => {
   S.cart.push({ key:uid(), productId:null, name:'', type:'other', listPrice:0, unitPrice:0, qty:1, pct:0, custom:true });
   openSheet(); renderCart(); const ins = $('c-lines').querySelectorAll('input[data-k="name"]'); ins[ins.length - 1]?.focus();
 };
-$('c-clear').onclick = () => { S.cart = []; $('c-disc').value = 0; resetPicker('c-cust'); renderSale(); };
+$('c-clear').onclick = () => { S.cart = []; $('c-disc').value = ''; resetPicker('c-cust'); renderSale(); };
 const lineTotal = l => r2(l.qty * l.unitPrice * (1 - (+l.pct || 0) / 100));
-function cartTotals(){ const sub = S.cart.reduce((a, l) => a + lineTotal(l), 0), list = S.cart.reduce((a, l) => a + l.qty * l.listPrice, 0), extra = Math.max(0, +$('c-disc').value || 0); return { sub, list, extra, total: r2(Math.max(0, sub - extra)) }; }
+/* a discount typed as an amount ("15") or a percent of the total ("10%") */
+const discOf = (v, base) => { const s = String(v ?? '').replace(',', '.').trim(); if (!s) return 0; const n = parseFloat(s); if (!(n > 0)) return 0; return r2(Math.min(base, /%$/.test(s) ? base * n / 100 : n)); };
+function cartTotals(){ const sub = S.cart.reduce((a, l) => a + lineTotal(l), 0), list = S.cart.reduce((a, l) => a + l.qty * l.listPrice, 0), extra = discOf($('c-disc').value, sub); return { sub, list, extra, total: r2(Math.max(0, sub - extra)) }; }
 function renderCart(){
   $('c-seller').innerHTML = sellerOpts($('c-seller').value || S.user?.name);
   if (!PICK['c-cust']) mountPicker('c-cust');
@@ -905,7 +907,7 @@ $('c-save').onclick = async () => {
     catch(e){ if (!missingFn(e)) throw e; await q(sb.rpc('record_sale', args)); }
     S.saleKey = S.saleSig = null;
     const repData = saleReportData({ lines, total:x.total, extra:x.extra, payment:$('c-pay').value, seller:$('c-seller').value, cust, note:$('c-note').value.trim(), date:new Date(), currency:'GEL' });
-    S.cart = []; $('c-disc').value = 0; $('c-note').value = ''; resetPicker('c-cust'); closeSheet();
+    S.cart = []; $('c-disc').value = ''; $('c-note').value = ''; resetPicker('c-cust'); closeSheet();
     toast(t('sale_saved') + ' · ' + money(x.total));
     await reload('products', 'sales', 'customers');
     showReport('sale', repData);
@@ -1103,7 +1105,7 @@ function setEnd(force){
 function fillRates(setPrice = true){
   const x = curTariff(), cur = $('r-rate').value;
   $('r-rate').innerHTML = (x?.rates || []).map((r, i) => `<option value="${i}" ${String(i) === cur ? 'selected' : ''}>${esc(rateLabel(r))} — ${money(r.p)}</option>`).join('') + `<option value="x" ${cur === 'x' ? 'selected' : ''}>${esc(t('other_duration'))}</option>`;
-  if (setPrice || $('r-price').value === '') { const r = x?.rates?.[+$('r-rate').value]; if (r) $('r-price').value = r.p; }
+  if (setPrice || $('r-price').value === '') { const r = x?.rates?.[+$('r-rate').value]; if (r) $('r-price').value = r.p; } paintRentFinal();
   if (setPrice) delete $('r-end').dataset.manual;
   setEnd(false);
 }
@@ -1138,8 +1140,13 @@ function drawExtraUnits(){
   const box = $('r-units-x'); if (!box) return;
   box.innerHTML = XU.map((k, i) => `<div class="unitrow"><select data-xu="${i}" aria-label="unit ${i + 2}">${unitOptHtml(k, new Set([$('r-unit').value, ...XU.filter((_, j) => j !== i)]))}</select><button type="button" class="btn ghost addunit" data-xrm="${i}" aria-label="×">×</button></div>`).join('');
   const n = 1 + XU.length, note = $('r-units-note');
-  note.hidden = n < 2; note.textContent = n < 2 ? '' : t('units_count').replace('{n}', n).replace('{sum}', money(r2((+$('r-price').value || 0) * n)));
+  note.hidden = n < 2; note.textContent = n < 2 ? '' : t('units_count').replace('{n}', n).replace('{sum}', money(r2(rentFinal().price * n)));
+  paintRentFinal();
 }
+/* rental price after the discount (per vehicle) */
+const rentFinal = () => { const list = r2(+$('r-price').value || 0), disc = discOf($('r-disc').value, list); return { list, disc, price:r2(Math.max(0, list - disc)) }; };
+function paintRentFinal(){ const f = rentFinal(), el = $('r-final'); if (!el) return; el.innerHTML = f.disc ? `${money(f.price)} <span class="small muted" style="text-decoration:line-through">${money(f.list)}</span>` : money(f.price); }
+$('r-disc').addEventListener('input', drawExtraUnits);
 $('r-unit-add').onclick = () => { XU.push(''); drawExtraUnits(); $('r-units-x').querySelector(`[data-xu="${XU.length - 1}"]`)?.focus(); };
 $('r-units-x').onchange = e => { const sel = e.target.closest('[data-xu]'); if (sel) { XU[+sel.dataset.xu] = sel.value; drawExtraUnits(); } };
 $('r-units-x').onclick = e => { const b = e.target.closest('[data-xrm]'); if (b) { XU.splice(+b.dataset.xrm, 1); drawExtraUnits(); } };
@@ -1159,7 +1166,7 @@ function contractStrings(raw, lg){
     name: raw.name, doc: raw.doc, idnum: raw.idnum || '—', dob: fmtDate(raw.dob), phone: raw.phone,
     vehicle: [tL('t_' + raw.type, lg), raw.unit].filter(Boolean).join(' · '),
     period: rateLabel(raw.rate, lg), start: fmtDT(raw.start), end: raw.end ? fmtDT(raw.end) : '',
-    price: `${money(raw.price)}${raw.pay ? ' · ' + tL('pay_' + raw.pay, lg) : ''}`,
+    price: `${money(raw.price)}${+raw.disc ? ` (${tL('discount', lg)} −${money(raw.disc)})` : ''}${raw.pay ? ' · ' + tL('pay_' + raw.pay, lg) : ''}`,
     deposit: +raw.deposit ? money(raw.deposit, raw.dep_cur || 'GEL') + (raw.dep_pay ? ' · ' + tL('pay_' + raw.dep_pay, lg) : '') : '', pen, seller: raw.seller, signedAt: raw.signed_at ? fmtDT(raw.signed_at) : ''
   };
 }
@@ -1405,11 +1412,12 @@ $('r-save').onclick = async () => {
     setEnd(false);   // start counts from now unless someone typed the return time
     const start = new Date(), endV = $('r-end').value, end = endV ? new Date(endV) : null;
     const unitLabel = units[0].label;
-    const row = { type:x.type, rate, price:r2($('r-price').value), deposit:r2($('r-dep').value), deposit_currency:$('r-dep-cur').value || 'GEL', deposit_payment:+$('r-dep').value ? $('r-dep-pay').value : '', unit_id:f?.id || null, product_id:sp?.id || null, unit_label:unitLabel,
+    const fin = rentFinal();
+    const row = { type:x.type, rate, price:fin.price, deposit:r2($('r-dep').value), deposit_currency:$('r-dep-cur').value || 'GEL', deposit_payment:+$('r-dep').value ? $('r-dep-pay').value : '', unit_id:f?.id || null, product_id:sp?.id || null, unit_label:unitLabel,
       customer_id:cust.id, customer_name:cust.name, phone:cust.phone || '', seller:$('r-seller').value, payment:$('r-pay').value, created_by:S.user?.name || '',
       ends_at: end && !isNaN(end) ? end.toISOString() : null };
     const raw = { name:cust.name, doc:cust.doc_type || 'other', idnum:cust.id_number || '', dob:cust.birth_date || '', phone:cust.phone || '', nat:cust.nationality || '',
-      type:x.type, unit:units.map(u => u.label).filter(Boolean).join(' + '), rate, start:start.toISOString(), end:row.ends_at, price:row.price, pay:row.payment, deposit:row.deposit, dep_cur:row.deposit_currency, dep_pay:row.deposit_payment, daily:dailyRate(x.type) || 0, seller:row.seller };
+      type:x.type, unit:units.map(u => u.label).filter(Boolean).join(' + '), rate, start:start.toISOString(), end:row.ends_at, price:row.price, ...(fin.disc ? { list:fin.list, disc:fin.disc } : {}), pay:row.payment, deposit:row.deposit, dep_cur:row.deposit_currency, dep_pay:row.deposit_payment, daily:dailyRate(x.type) || 0, seller:row.seller };
     btn.disabled = false;
     const sig = await askSignature(raw);
     if (!sig) return;
@@ -1425,7 +1433,7 @@ $('r-save').onclick = async () => {
     catch(e){ console.error(e); toast(t('sign_fail')); }
     await uploadRentalVideo(saved.id, savedAll.map(y => y.id));
     XU = []; drawExtraUnits();
-    $('r-dep').value = 0; $('r-dep-cur').value = 'GEL'; paintPills($('r-dep-cur')); $('r-unit-q').value = ''; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
+    $('r-dep').value = 0; $('r-disc').value = ''; $('r-dep-cur').value = 'GEL'; paintPills($('r-dep-cur')); $('r-unit-q').value = ''; $('r-unit').value = ''; delete $('r-end').dataset.manual; $('r-end').value = ''; resetPicker('r-cust'); toast(t('rent_started'));
     await reload('rentals', 'customers');
     const done = S.rentals.find(y => y.id === saved.id);
     if (done?.contract) viewContract(done, false, { done:true }); else showReport('rental', rentalReportData(done || { ...saved, contract:true }));
@@ -1554,7 +1562,7 @@ function rentalReportData(r){
   if (!r) return null;
   const c = S.customers.find(x => x.id === r.customer_id) || {}, raw = r.contract?.raw || {};
   return { item: lg => [tL('t_' + r.type, lg), r.unit_label].filter(Boolean).join(' · '), period: lg => rateLabel(r.rate, lg),
-    fee: repMoney('GEL')(r.price), payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? lg => repMoney(r.deposit_currency || 'GEL')(r.deposit) + (r.deposit_payment ? ' · ' + tL('pay_' + r.deposit_payment, lg) : '') : '',
+    fee: repMoney('GEL')(r.price), disc: +raw.disc ? repMoney('GEL')(raw.disc) : '', payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? lg => repMoney(r.deposit_currency || 'GEL')(r.deposit) + (r.deposit_payment ? ' · ' + tL('pay_' + r.deposit_payment, lg) : '') : '',
     cust: r.customer_name || c.name || '', tel: r.phone || c.phone || '', nat: natCode(c.nationality || raw.nat),
     docPhoto: !!c.photo, signed: !!r.contract, video: !!r.video, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
 }

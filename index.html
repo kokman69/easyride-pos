@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Georgian:wght@400;500;600;700;800&family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="style.css?v=44">
+<link rel="stylesheet" href="style.css?v=45">
 <script>try{var md=localStorage.getItem('er-mode');if(md==='simple'||(md!=='full'&&(matchMedia('(pointer:coarse)').matches||innerWidth<=1100)))document.documentElement.classList.add('simple')}catch(e){}</script>
 <script>try{var th=localStorage.getItem('er-theme');if(th==='light'||th==='dark')document.documentElement.setAttribute('data-theme',th)}catch(e){}</script>
 </head>
@@ -127,13 +127,13 @@
         <div class="formgrid two">
           <label class="f"><span data-i="payment"></span><select id="c-pay"></select></label>
           <label class="f"><span data-i="seller"></span><select id="c-seller"></select></label>
+          <label class="f" style="grid-column:1/-1"><span data-i="disc_field"></span><input id="c-disc" type="text" inputmode="decimal" autocomplete="off" placeholder="0 / 10%"></label>
         </div>
         <div class="stack" id="c-cust-wrap" hidden>
           <div class="small" style="font-weight:600"><span data-i="customer"></span> <span class="req" data-i="required_mark"></span></div>
           <div id="c-cust"></div>
         </div>
         <details class="more"><summary data-i="more_fields"></summary><div class="stack">
-          <label class="f"><span data-i="extra_disc"></span><input id="c-disc" type="number" min="0" step="1" value="0" inputmode="decimal"></label>
           <label class="f"><span data-i="note"></span><input id="c-note" type="text" data-iph="note_ph"></label>
         </div></details>
         <div class="tot"><span class="muted" id="c-sub"></span><span class="num" id="c-total">0 ₾</span></div>
@@ -175,6 +175,8 @@
           <div class="f"><span data-i="deposit"></span><div class="depwrap"><input id="r-dep" type="number" min="0" value="0" inputmode="decimal" aria-label="deposit">
             <select id="r-dep-cur" class="pillsel cur" aria-label="currency"><option value="GEL">₾</option><option value="USD">$</option><option value="EUR">€</option></select></div>
             <select id="r-dep-pay" class="pillsel" aria-label="deposit payment"></select></div>
+          <label class="f"><span data-i="disc_field"></span><input id="r-disc" type="text" inputmode="decimal" autocomplete="off" placeholder="0 / 10%"></label>
+          <div class="f"><span data-i="to_pay"></span><b class="num" id="r-final" style="font-size:20px;padding:8px 0"></b></div>
         </div>
         <details class="more"><summary data-i="more_fields"></summary>
           <div class="formgrid two">
@@ -277,12 +279,12 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=44"></script>
-<script src="i18n.js?v=44"></script>
-<script src="countries.js?v=44"></script>
-<script src="mrz.js?v=44"></script>
-<script src="contract.js?v=44"></script>
-<script src="report.js?v=44"></script>
-<script src="app.js?v=44"></script>
+<script src="config.js?v=45"></script>
+<script src="i18n.js?v=45"></script>
+<script src="countries.js?v=45"></script>
+<script src="mrz.js?v=45"></script>
+<script src="contract.js?v=45"></script>
+<script src="report.js?v=45"></script>
+<script src="app.js?v=45"></script>
 </body>
 </html>
