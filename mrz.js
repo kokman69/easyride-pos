@@ -133,20 +133,37 @@
     const field = re => { for (let i = 0; i < lines.length; i++) { const m = lines[i].match(re); if (m) return { rest: lines[i].slice(m.index + m[0].length).replace(/^[\s:.,)-]+/, ''), i }; } return null; };
     const isLic = /\b4\s?[abcd]\s?[.,)]/i.test(raw) || (/(^|\n)\s*1\s?[.,)]/.test(raw) && /(^|\n)\s*2\s?[.,)]/.test(raw) && /(^|\n)\s*5\s?[.,)]/.test(raw)) || /DRIV|LICEN|PERMIS|FÜHRER|ВОДИТЕЛЬСК|მართვის/i.test(raw);
     if (!isLic) return null;
-    const latin = s => { const w = String(s || '').replace(/[^A-Za-z\s-]/g, ' ').match(/\b[A-Z][A-Z-]{1,}(?:\s+[A-Z][A-Z-]{1,})*\b/); return w ? w[0] : ''; };
-    const STOP = /^(DRIVING|LICENCE|LICENSE|PERMIS|GEORGIA|GEO|RUS|RUSSIA|MIA|SSA|GIBDD)$/;
-    const nameAt = re => { const f = field(re); if (!f) return '';
+    // a name: "SIMONSEN" or "Simonsen" (+ more words of the same style); short OCR noise after it is dropped
+    const latin = s => { const toks = String(s || '').replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s'-]/g, ' ').split(/\s+/).filter(Boolean);
+      const caps = w => /^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ'-]+$/.test(w), cap = w => /^[A-ZÀ-ÖØ-Þ][a-zß-öø-ÿ'-]+$/.test(w);
+      const i = toks.findIndex(w => caps(w) || cap(w)); if (i < 0) return '';
+      const same = caps(toks[i]) ? caps : cap, out = [toks[i]];
+      for (let j = i + 1; j < toks.length && same(toks[j]) && toks[j].length >= 3; j++) out.push(toks[j]);
+      return out.join(' ').toUpperCase(); };
+    const STOP = /^(DRIVING|LICENCE|LICENSE|PERMIS|GEORGIA|GEO|RUS|RUSSIA|MIA|SSA|GIBDD|K[ØO0]REKORT|F[ÜU]HRERSCHEIN|K[ÖO]RKORT|F[ØO]RERKORT|RIJBEWIJS|PRAWO JAZDY)$/;
+    // the legend on the back ("1. Efternavn 2. Fornavn 3. …") has several field numbers on one line: never a name
+    const legend = l => (l.match(/(^|\s)\d[a-d]?\s?[.,)]\s/gi) || []).length >= 2 || /EFTERNAVN|FORNAVN|SURNAME|NACHNAME|VORNAME|NAZWISKO|IMI[EĘ]|PR[ÉE]NOM|\bNOM\b|ACHTERNAAM|VOORNAAM|EFTERNAMN|F[ÖO]RNAMN|ETTERNAVN/i.test(l);
+    const nameAt = re => { const f = field(re); if (!f || legend(lines[f.i])) return '';
       let w = latin(f.rest); if (w && !STOP.test(w)) return w;
       for (let j = f.i + 1; j < Math.min(f.i + 2, lines.length); j++) { if (/^\s*\d\s?[.,)]/.test(lines[j])) break; w = latin(lines[j]); if (w && !STOP.test(w)) return w; }
       return ''; };
     const dateIn = s => { const m = String(s || '').match(/([0-3]\d)[.\/ -]([01]\d)[.\/ -]((?:19|20)\d\d)/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
     let surname = nameAt(/^\s*1\s?[.,)]/), given = nameAt(/^\s*2\s?[.,)]/);
-    const birth = dateIn(field(/^\s*3\s?[.,)]/)?.rest);
+    const f3 = field(/^\s*3\s?[.,)]/)?.rest || '';
+    let birth = dateIn(f3);
+    // a smudged month ("11.0%.1960"): many licences repeat the birth date as DDMMYY at the start of field 4d (Danish CPR …)
+    const f4dRaw = (field(/\b4\s?d\s?[.,)]?/i)?.rest || '').replace(/\s/g, '');
+    { const m3 = f3.match(/([0-3]\d)[.\/ -]\S{1,3}?[.\/ -]?((?:19|20)\d\d)/), cpr = f4dRaw.match(/^([0-3]\d)([01]\d)(\d\d)/);
+      if (m3 && cpr && cpr[1] === m3[1] && cpr[3] === m3[2].slice(2) && +cpr[2] >= 1 && +cpr[2] <= 12) birth = `${m3[2]}-${cpr[2]}-${m3[1]}`; }
     const f4b = field(/\b4\s?b\s?[.,)]?/i), expiry = dateIn(f4b?.rest) || (() => { const ds = [...raw.matchAll(/\b([0-3]\d)[.\/ -]([01]\d)[.\/ -]((?:19|20)\d\d)\b/g)].map(m => `${m[3]}-${m[2]}-${m[1]}`).sort(); const today = new Date().toISOString().slice(0, 10); return ds.reverse().find(d => d > today) || ''; })();
     const f4d = field(/\b4\s?d\s?[.,)]?/i), personal = ((f4d?.rest || '').match(/\d{11}/) || [''])[0] || personalFromText(raw);
     const f5 = field(/^\s*5\s?[.,)]/), number = f5 ? f5.rest.split(/\s\d{1,2}\s?[a-z]?\s?[.,)]/i)[0].replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 14) : '';
     if (!surname && !given) return null;
-    const nat = /\bRUS\b|РОССИ/i.test(raw) ? 'RUS' : (personal || /\bGEO\b|GEORGIA|საქართველო/i.test(raw)) ? 'GEO' : '';
+    // the issuing country printed on the card (EU licences: the country name in the header)
+    const LIC_C = [[/DANMARK/i, 'DNK'], [/DEUTSCHLAND|BUNDESREPUBLIK/i, 'DEU'], [/SVERIGE/i, 'SWE'], [/NORGE/i, 'NOR'], [/SUOMI|FINLAND/i, 'FIN'], [/POLSKA/i, 'POL'], [/NEDERLAND/i, 'NLD'],
+      [/ESPA[ÑN]A/i, 'ESP'], [/ITALIA/i, 'ITA'], [/R[ÉE]PUBLIQUE FRAN|FRANCE/i, 'FRA'], [/[ÖO]STERREICH/i, 'AUT'], [/[ČC]ESK[ÁA]/i, 'CZE'], [/UNITED KINGDOM|\bUK\b/, 'GBR'], [/IRELAND|[ÉE]IRE/i, 'IRL'],
+      [/BELGI/i, 'BEL'], [/LIETUV/i, 'LTU'], [/LATVIJ/i, 'LVA'], [/EESTI/i, 'EST'], [/MAGYAR/i, 'HUN'], [/ROM[ÂA]NIA/i, 'ROU'], [/SCHWEIZ|SUISSE|SVIZZERA/i, 'CHE'], [/ISRAEL/i, 'ISR'], [/T[ÜU]RK[İI]YE/i, 'TUR'], [/УКРА[ЇI]НА|UKRAINE/i, 'UKR'], [/KAZAKHSTAN|ҚАЗАҚСТАН/i, 'KAZ']];
+    const nat = /\bRUS\b|РОССИ/i.test(raw) ? 'RUS' : (personal || /\bGEO\b|GEORGIA|საქართველო/i.test(raw)) ? 'GEO' : (LIC_C.find(([re]) => re.test(raw)) || [])[1] || '';
     // Russian licences print every name twice (Cyrillic, then Latin); read as Latin text the Cyrillic half is noise → keep the second half
     const half = n => { const w = String(n || '').split(/\s+/).filter(Boolean); return nat === 'RUS' && w.length >= 2 && w.length % 2 === 0 ? w.slice(w.length / 2).join(' ') : n; };
     surname = half(surname); given = half(given);

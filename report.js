@@ -74,7 +74,21 @@ window.ER_REPORT = (function () {
       r.docPhoto ? line(w.doc, w.docTaken) : '', r.signed ? line(w.agr, w.agrSigned) : '', r.video ? line(w.vid, w.vidTaken) : '',
       line(w.start, r.start), line(w.end, r.end), line(w.seller, r.seller)]);
   }
+  /* deposit back at return, as the team writes it in the group: "100Gel (Cash) was returned to the customer - 19:20"
+     d: { dep, back, cur, payLabel(lg), fee, feePay(lg), time } */
+  const num = n => { n = Math.round(n * 100) / 100; return String(n % 1 ? n.toFixed(2) : n); };
+  const RET = {
+    en: { back: (a, c, p, t) => `${a}${c === 'GEL' ? 'Gel' : ' ' + c} (${p}) was returned to the customer - ${t}`, veh: t => `The vehicle was returned - ${t}`, kept: (a, c) => `${a}${c === 'GEL' ? 'Gel' : ' ' + c} was kept from the deposit`, late: (a, p) => `Late return fee: ${a}Gel${p ? ` (${p})` : ''}` },
+    ka: { back: (a, c, p, t) => `მომხმარებელს დაუბრუნდა ${a} ${c === 'GEL' ? 'ლარი' : c} (${p}) - ${t}`, veh: t => `ტრანსპორტი დაბრუნდა - ${t}`, kept: (a, c) => `დეპოზიტიდან დაკავდა ${a} ${c === 'GEL' ? 'ლარი' : c}`, late: (a, p) => `დაგვიანების ჯარიმა: ${a} ლარი${p ? ` (${p})` : ''}` },
+    ru: { back: (a, c, p, t) => `Клиенту возвращено ${a} ${c} (${p}) - ${t}`, veh: t => `Транспорт возвращён - ${t}`, kept: (a, c) => `Удержано из депозита: ${a} ${c}`, late: (a, p) => `Штраф за опоздание: ${a} GEL${p ? ` (${p})` : ''}` },
+    ja: { back: (a, c, p, t) => `お客様にデポジット${a} ${c}（${p}）を返却しました - ${t}`, veh: t => `車両が返却されました - ${t}`, kept: (a, c) => `デポジットから${a} ${c}を差し引きました`, late: (a, p) => `延滞料金：${a} GEL${p ? `（${p}）` : ''}` }
+  };
+  function ret(lg, d) {
+    const w = RET[lg], kept = Math.round((d.dep - d.back) * 100) / 100;
+    return join([d.dep && d.back ? w.back(num(d.back), d.cur, d.payLabel(lg), d.time) : w.veh(d.time), kept > 0 ? w.kept(num(kept), d.cur) : '', d.fee ? w.late(num(d.fee), d.feePay(lg)) : '']);
+  }
   function build(kind, data, langs) {
+    if (kind === 'ret') { const ls = langs.filter(l => RET[l]); return ls.map(lg => (ls.length > 1 ? `${FLAG[lg]}\n` : '') + fix(ret(lg, data), lg)).join('\n\n'); }
     const blocks = langs.filter(l => W[l]).map(lg => `${FLAG[lg]}\n${fix(kind === 'rental' ? rental(lg, data) : sale(lg, data), lg)}`);
     return `${HEAD}\n\n${blocks.join('\n\n')}`;
   }

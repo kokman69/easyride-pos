@@ -435,7 +435,8 @@ function crop(c, top, h){
   o.getContext('2d').drawImage(c, 0, Math.round(c.height * top), c.width, o.height, 0, 0, o.width, o.height);
   return o;
 }
-const goodMrz = r => r && r.checks.filter(Boolean).length >= 2 && (r.surname || r.birth);
+// a real MRZ: most check digits right, a birth date, and a name without digits (text on a licence can look like a broken MRZ)
+const goodMrz = r => r && r.checks.filter(Boolean).length >= 2 && !!r.birth && !/\d/.test(r.surname || '') && !/\d/.test(r.given || '');
 const CYR_NAT = ['RUS', 'BLR', 'KAZ', 'KGZ'];
 const MRZ_PARAMS = { tessedit_char_whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<', tessedit_pageseg_mode:'6' };
 const finishMrz = best => ({ ...best, nationality: window.MRZ.nationCode(best.nationality, window.ER_COUNTRIES || {}) || window.MRZ.nationCode(best.country, window.ER_COUNTRIES || {}) });
@@ -446,15 +447,24 @@ async function readDocument(file){
   await mw.setParameters(MRZ_PARAMS);
   // [rotation, crop top, crop height, width, black/white]: bottom part first (where the MRZ is), then the whole photo, then turned photos
   const tries = [[0, .5, .5, 1800, 1], [0, .5, .5, 1800, 0], [0, 0, 1, 2000, 1], [180, .5, .5, 1800, 1], [90, .5, .5, 1800, 1], [-90, .5, .5, 1800, 1], [0, .35, .65, 2600, 1], [90, 0, 1, 2000, 1], [-90, 0, 1, 2000, 1]];
-  let best = null, bestRot = 0;
-  for (const [rot, top, h, width, bin] of tries) {
+  let best = null, bestRot = 0, chev = false, front = null, frontRot = 0;
+  for (let k = 0; k < tries.length; k++) {
+    const [rot, top, h, width, bin] = tries[k];
     const { data } = await mw.recognize(crop(prep(bmp, rot, width, bin), top, h));
+    if (/<{4,}/.test(data.text)) chev = true;
     const r = window.MRZ.parse(data.text);
     if (r && (!best || r.score > best.score)) { best = r; bestRot = rot; }
     if (best?.valid && best.surname) break;
+    // no <<<< run in sight (driving licence, front of an ID card): read the printed side first, it is much quicker
+    if (k === 0 && !chev && !front) { [front, frontRot] = await readFront(bmp); if (front && frontScore(front) >= 4) return { out:front, bmp, rot:frontRot }; }
   }
   if (goodMrz(best)) return { out:finishMrz(best), bmp, rot:bestRot };
-  // front side of an ID card (or a passport page without a readable MRZ): names, dates, personal number from the Latin text
+  if (!front) [front, frontRot] = await readFront(bmp);
+  return front ? { out:front, bmp, rot:frontRot } : null;
+}
+/* front side of an ID card or a driving licence (or a passport page without a readable MRZ): names, dates, numbers from the Latin text */
+async function readFront(bmp){
+  let bestRot = 0;
   const w = await ocrWorker('eng');
   await w.setParameters({ tessedit_char_whitelist:'', tessedit_pageseg_mode:'3' });
   let front = null;
@@ -465,8 +475,7 @@ async function readDocument(file){
     if (f && (!front || frontScore(f) > frontScore(front))) { front = f; bestRot = rot; }
     if (front && frontScore(front) >= 4) break;
   }
-  if (!front) return null;
-  return { out:front, bmp, rot:bestRot };
+  return [front, bestRot];
 }
 /* printed side without <<< lines: a driving licence (numbered fields) or the front of an ID card */
 function frontOf(text){
@@ -497,7 +506,8 @@ async function localNameOf(bmp, rot, out){
 /* live scan: the camera stays open and the machine-readable lines (the <<< rows at the bottom of a passport page /
    back of an ID card) are read straight from the video; it closes the moment the check digits add up.
    Resolves { out, blob } (read), { blob } (plain photo taken instead), null (closed) or undefined (no camera). */
-const canLive = () => !!(navigator.mediaDevices?.getUserMedia);
+// phones / tablets use their own camera app (a plain photo); a computer with a webcam gets a simple preview with one button
+const canLive = () => !!(navigator.mediaDevices?.getUserMedia) && !matchMedia('(pointer:coarse)').matches;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function frameBlob(v){
   const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
@@ -523,59 +533,16 @@ async function liveScan(){
   return new Promise(resolve => {
     let alive = true;
     openOv(`<div class="row between" style="flex-wrap:nowrap"><h2>${esc(t('scan_live'))}</h2><button type="button" class="btn" id="ls-x">${esc(t('close'))}</button></div>
-      <div class="lscam"><video id="ls-v" autoplay muted playsinline></video><div class="lsframe" id="ls-f"><span>&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</span></div></div>
-      <div class="scanmsg" id="ls-st">${esc(t('scan_live_hint'))}</div>
-      <button type="button" class="btn" id="ls-shot">📷 ${esc(t('scan_live_photo'))}</button>`, 'scanov');
+      <div class="lscam"><video id="ls-v" autoplay muted playsinline></video></div>
+      <div class="scanmsg" id="ls-st">${esc(t('scan_photo_hint'))}</div>
+      <button type="button" class="btn primary big" id="ls-shot">📷 ${esc(t('scan_take'))}</button>`, 'scanov');
     const ovClick = $('ov').onclick; $('ov').onclick = null;
     const v = $('ls-v'); v.srcObject = stream;
     v.onloadedmetadata = () => { if (v.videoWidth) v.parentElement.style.aspectRatio = `${v.videoWidth} / ${v.videoHeight}`; };
-    // tap to focus where the camera supports it
     try { const tr = stream.getVideoTracks()[0], cap = tr.getCapabilities?.() || {}; if (cap.focusMode?.includes('continuous')) tr.applyConstraints({ advanced:[{ focusMode:'continuous' }] }).catch(() => {}); } catch(e){}
     const done = val => { if (!alive) return; alive = false; stream.getTracks().forEach(x => x.stop()); $('ov').onclick = ovClick; closeOv(); resolve(val); };
     $('ls-x').onclick = () => done(null);
     $('ls-shot').onclick = async () => { if (v.readyState >= 2) done({ blob: await frameBlob(v) }); };
-    (async () => {
-      let w;
-      try { w = await ocrWorker('mrz'); await w.setParameters(MRZ_PARAMS); }
-      catch(e){ console.error(e); if ($('ls-st')) $('ls-st').textContent = t('scan_fail'); return; }
-      const seen = {}, seenF = {}; let i = 0, ew = null;
-      ocrWorker('eng').then(x => { ew = x; }).catch(() => {});
-      while (alive) {
-        if (v.readyState < 2 || !v.videoWidth) { await sleep(120); continue; }
-        const f = $('ls-f'); if (!f) break;
-        // every fourth frame: the whole picture as printed text (driving licence, front of an ID card)
-        if (ew && i > 2 && i % 4 === 3) {
-          i++;
-          try {
-            await ew.setParameters({ tessedit_char_whitelist:'', tessedit_pageseg_mode:'3' });
-            const c0 = document.createElement('canvas'); c0.width = v.videoWidth; c0.height = v.videoHeight; c0.getContext('2d').drawImage(v, 0, 0);
-            const { data } = await ew.recognize(prep(docCrop(c0), 0, 1800, (i >> 2) % 2));
-            const f = frontOf(data.text);
-            if (alive && f && frontScore(f) >= 3) {
-              const key = [f.surname, f.given, f.birth, f.personal || f.number].join('|'); seenF[key] = (seenF[key] || 0) + 1;
-              const st = $('ls-st'); if (st) { st.textContent = t('scan_live_almost'); st.className = 'scanmsg'; }
-              if (seenF[key] >= 2 || frontScore(f) >= 4.5) { $('ls-f')?.classList.add('ok'); const blob = await frameBlob(v); await sleep(150); done({ out:f, blob }); break; }
-            }
-          } catch(e){ console.error(e); }
-          continue;
-        }
-        const pass = i++ % 3;          // black/white tight · grey · black/white with more room around the guide
-        const c = guideCrop(v, f, pass === 2 ? .45 : .2);
-        let r = null;
-        try { const { data } = await w.recognize(prep(c, 0, Math.min(1600, Math.max(1000, c.width)), pass !== 1)); r = window.MRZ.parse(data.text); }
-        catch(e){ console.error(e); await sleep(300); continue; }
-        if (!alive) break;
-        if (r && (r.surname || r.birth)) {
-          const key = [r.number, r.birth, r.surname, r.given].join('|'); seen[key] = (seen[key] || 0) + 1;
-          const st = $('ls-st'); if (st) { st.textContent = t('scan_live_almost'); st.className = 'scanmsg'; }
-          // all check digits right → done at once; otherwise the same reading twice with most checks right
-          if ((r.valid && r.surname && r.birth) || (goodMrz(r) && r.surname && seen[key] >= 2)) {
-            $('ls-f')?.classList.add('ok'); const blob = await frameBlob(v); await sleep(150);
-            done({ out:finishMrz(r), blob }); break;
-          }
-        }
-      }
-    })();
   });
 }
 /* the live scan uses the same overlay as the customer form: keep the form and put it back afterwards */
@@ -1477,7 +1444,7 @@ $('r-active').addEventListener('click', e => { const vb = e.target.closest('[dat
 $('r-history').addEventListener('click', e => { const vb = e.target.closest('[data-act="video"]'); if (vb) viewVideo(S.rentals.find(r => r.id === vb.closest('[data-id]').dataset.id)?.video); });
 $('r-active').onclick = async e => {
   const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
-  const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; }
+  const rb = e.target.closest('[data-act="rrep"]'); if (rb) { const rr = S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id); showReport('rental', rentalReportData(rr), { rental:rr }); return; }
   const cb = e.target.closest('[data-act="contract"]'); if (cb) { viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); return; }
   const fa = e.target.closest('[data-act="sendall"]'); if (fa) { sendRentalFiles(S.rentals.find(r => r.id === fa.closest('[data-id]').dataset.id)); return; }
   const sb2 = e.target.closest('[data-act="cshare"]'); if (sb2) { viewContract(S.rentals.find(r => r.id === sb2.closest('[data-id]').dataset.id), true); return; }
@@ -1499,14 +1466,23 @@ async function openReturn(r){
         <label class="f"><span>${esc(t('payment'))}</span><select id="rt-pay">${PAYS.map(k => `<option value="${k}" ${k === (r.payment || 'cash') ? 'selected' : ''}>${esc(tPay(k))}</option>`).join('')}</select></label>
         <button type="button" class="btn big paidbtn" id="rt-paid" aria-pressed="false">${esc(t('mark_paid'))} · ${money(fee)}</button></div>`
       : `<div class="okbox">${esc(t(r.ends_at ? 'on_time' : 'no_end_time'))}</div>`}
+    ${+r.deposit ? `<div class="stack" style="gap:4px"><label class="f">${esc(t('dep_returned'))} (${esc(CUR_SIGN[r.deposit_currency || 'GEL'] || r.deposit_currency)})<input id="rt-dep" type="number" min="0" max="${+r.deposit}" step="0.01" inputmode="decimal" class="num" value="${+r.deposit}"></label>
+      <div class="small muted" id="rt-kept"></div></div>` : ''}
     <button type="button" class="btn primary big" id="rt-done" ${fee ? 'disabled' : ''}>${esc(t('finish_rental'))}</button>
     ${fee ? `<div class="small muted" id="rt-hint">${esc(t('paid_first'))}</div>` : ''}`);
   if ($('rt-paid')) $('rt-paid').onclick = () => { const on = $('rt-paid').getAttribute('aria-pressed') !== 'true'; $('rt-paid').setAttribute('aria-pressed', on); $('rt-done').disabled = !on; $('rt-hint').hidden = on; };
+  // part of the deposit can be kept (damage, fuel …): typed by hand, shown in the report
+  const depBack = () => $('rt-dep') ? Math.min(+r.deposit, Math.max(0, r2($('rt-dep').value))) : 0;
+  if ($('rt-dep')) { const kept = () => { const k = r2(+r.deposit - depBack()); $('rt-kept').textContent = k > 0 ? `${t('dep_kept')}: ${money(k, r.deposit_currency || 'GEL')}` : ''; }; $('rt-dep').oninput = kept; kept(); }
   $('rt-done').onclick = async () => {
     const btn = $('rt-done'); btn.disabled = true;
+    const back = depBack(), feePay = $('rt-pay')?.value || '', at = new Date();
     try {
-      await q(sb.rpc('return_rental', { p_id:r.id, p_fee:fee, p_payment:$('rt-pay')?.value || '' }));
+      await q(sb.rpc('return_rental', { p_id:r.id, p_fee:fee, p_payment:feePay }));
       closeOv(); toast(t('return_saved') + (fee ? ' · +' + money(fee) : '')); await reload('rentals');
+      const rr = S.rentals.find(x => x.id === r.id) || r;
+      showReport('ret', { dep:+r.deposit || 0, back, cur:r.deposit_currency || 'GEL', payLabel: lg => tL('pay_' + (r.deposit_payment || 'cash'), lg),
+        fee, feePay: lg => feePay ? tL('pay_' + feePay, lg) : '', time:`${pad(at.getHours())}:${pad(at.getMinutes())}` }, { rental:rr });
     } catch(err){
       if (/fee_changed/.test(err?.message || '')) { toast(t('fee_changed')); closeOv(); openReturn(r); return; }
       fail(err); btn.disabled = false;
@@ -1514,7 +1490,7 @@ async function openReturn(r){
   };
 }
 $('r-history').onclick = e => { const eb = e.target.closest('[data-act="redit"]'); if (eb) { openRentalEdit(eb.closest('[data-id]').dataset.id); return; }
-  const rb = e.target.closest('[data-act="rrep"]'); if (rb) { showReport('rental', rentalReportData(S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id))); return; } const sb2 = e.target.closest('[data-act="cshare"]'); if (sb2) { viewContract(S.rentals.find(r => r.id === sb2.closest('[data-id]').dataset.id), true); return; } const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
+  const rb = e.target.closest('[data-act="rrep"]'); if (rb) { const rr = S.rentals.find(r => r.id === rb.closest('[data-id]').dataset.id); showReport('rental', rentalReportData(rr), { rental:rr }); return; } const sb2 = e.target.closest('[data-act="cshare"]'); if (sb2) { viewContract(S.rentals.find(r => r.id === sb2.closest('[data-id]').dataset.id), true); return; } const cb = e.target.closest('[data-act="contract"]'); if (cb) viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); };
 
 /* admin: fix a rental — same PIN as for sales, checked again on the server */
 function openRentalEdit(id){ if (!isAdmin()) return; const r = S.rentals.find(x => x.id === id); if (r) askPin(pin => editRental(r, pin)); }
@@ -1583,14 +1559,16 @@ function rentalReportData(r){
     docPhoto: !!c.photo, signed: !!r.contract, video: !!r.video, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
 }
 function repLangs(){ try { const v = JSON.parse(ls.get('er-rep-langs') || 'null'); if (Array.isArray(v) && v.length) return v; } catch(e){} return ['en', 'ja']; }
-function showReport(kind, data){
+function showReport(kind, data, opts = {}){
   if (!data) return;
   let langs = repLangs();
   openOv(`<div class="row between"><h2>${esc(t('report_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
     <div class="langpick" id="rp-langs">${window.ER_REPORT.langs.map(k => `<button type="button" class="chip" data-l="${k}"></button>`).join('')}</div>
     <textarea id="rp-text" class="reptext" rows="14" spellcheck="false"></textarea>
     <div class="row" style="gap:8px"><button type="button" class="btn primary big" id="rp-copy" style="flex:1;width:auto">${esc(t('copy'))}</button>
-      <a class="btn big wa" id="rp-wa" target="_blank" rel="noopener" style="flex:1;width:auto">${esc(t('send_wa'))}</a></div>`);
+      <a class="btn big wa" id="rp-wa" target="_blank" rel="noopener" style="flex:1;width:auto">${esc(t('send_wa'))}</a></div>
+    ${opts.rental ? `<div class="stack" style="gap:6px;border-top:1px solid var(--line);padding-top:10px">${custWaBtn('rp-cwa', false)}<button type="button" class="btn" id="rp-files">📎 ${esc(t('rent_done_files'))}</button></div>` : ''}`);
+  if (opts.rental) { armCustWa('rp-cwa', opts.rental); $('rp-files').onclick = () => sendRentalFiles(opts.rental); }
   const paint = () => {
     $('rp-langs').querySelectorAll('[data-l]').forEach(b => { b.textContent = window.ER_REPORT.FLAG[b.dataset.l]; b.setAttribute('aria-pressed', langs.includes(b.dataset.l)); });
     $('rp-text').value = window.ER_REPORT.build(kind, data, window.ER_REPORT.langs.filter(l => langs.includes(l)));
@@ -2351,7 +2329,7 @@ function renderHome(){
   const act = S.rentals.filter(r => r.status === 'active').sort((a, b) => String(a.ends_at || '9').localeCompare(String(b.ends_at || '9')));
   $('h-now-n').textContent = act.length || '';
   $('h-now').innerHTML = act.length ? act.slice(0, 3).map(r => `<div class="hnowrow" data-id="${r.id}"><span class="hrow-n"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}</small></span>
-      ${dueBadge(r)}<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div>`).join('')
+      ${dueBadge(r)}<span class="row" style="gap:4px;flex-wrap:nowrap">${isAdmin() ? `<button type="button" class="btn ghost small" data-act="redit" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">✏️</button>` : ''}<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></span></div>`).join('')
       + (act.length > 3 ? `<button type="button" class="btn ghost small" data-go="rent">${esc(t('h_all_n').replace('{n}', act.length))}</button>` : '')
     : `<div class="small muted">${esc(t('nothing_rented'))}</div>`;
   // rented today: a card with the vehicle's photo
@@ -2360,7 +2338,7 @@ function renderHome(){
   $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0];
     return `<div class="hcard" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="tag ${r.status === 'active' ? '' : 'out'}">${esc(t(r.status === 'active' ? 'h_out' : 'h_back'))}</span></div>
       <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')} · ${fmtTs(r.created_at).slice(-5)}</small>${r.status === 'active' ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
-      <div class="hcard-a">${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎 ${esc(t('send_files'))}</button><button type="button" class="btn ghost small" data-act="rrep">📤</button></div></div>`; }).join('')
+      <div class="hcard-a">${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎 ${esc(t('send_files'))}</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${isAdmin() ? `<button type="button" class="btn ghost small" data-act="redit" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">✏️</button>` : ''}</div></div>`; }).join('')
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
 }
 $('h-mode').onclick = e => { const b = e.target.closest('[data-m]'); if (!b) return; ls.set('er-hmode', b.dataset.m); renderHome(); };
@@ -2372,7 +2350,8 @@ $('v-home').addEventListener('click', e => {
   if (a === 'ret') openReturn(r);
   else if (a === 'contract') viewContract(r);
   else if (a === 'sendall') sendRentalFiles(r);
-  else if (a === 'rrep') showReport('rental', rentalReportData(r));
+  else if (a === 'rrep') showReport('rental', rentalReportData(r), { rental:r });
+  else if (a === 'redit') openRentalEdit(r.id);
 });
 /* closing the day: the register card (expected cash, counted cash, note) unfolds right on the home page */
 function paintHomeCash(){
