@@ -184,17 +184,13 @@ const roleBadge = (r, style = '') => `<span class="${roleCls(r)}"${style ? ` sty
 async function renderGate(){
   if (!LOGIN) { try { LOGIN = await q(sb.rpc('login_list')) || []; } catch(e){ console.error(e); LOGIN = []; } }
   if (!LOGIN.length) return renderGateOld();
-  let role = ROLES.includes(ls.get('er-grole')) ? ls.get('er-grole') : 'consultant';
   const paint = () => {
-    const list = LOGIN.filter(x => x.role === role), last = ls.get('er-gemail');
-    $('gate-body').innerHTML = `<h2>${esc(t('login_title'))}</h2><form id="g-login" class="stack">
-      <div class="rolepick" role="radiogroup">${ROLES.filter(k => k !== 'moderator' || LOGIN.some(x => x.role === 'moderator')).map(k => `<button type="button" class="rp ${k === 'admin' ? 'adm' : k === 'moderator' ? 'mod' : ''}" data-r="${k}" aria-pressed="${role === k}">${roleIcon(k)}<span>${esc(t(roleKey(k)))}</span></button>`).join('')}</div>
+    const list = LOGIN, last = ls.get('er-gemail');
+    $('gate-body').innerHTML = `<form id="g-login" class="stack">
       ${list.length ? '' : `<div class="small muted">${esc(t('no_accounts'))}</div>`}
-      <label class="f">${esc(t('password'))}<input id="g-pw" type="password" autocomplete="current-password" required></label>
-      <label class="row small muted"><input type="checkbox" id="g-rem" checked> ${esc(t('remember'))}</label>
+      <label class="f">${esc(t('password'))}<input id="g-pw" type="password" autocomplete="current-password" required autofocus></label>
       <div id="g-err" class="err" hidden></div>
       <button class="btn primary big" id="g-btn" ${list.length ? '' : 'disabled'}>${esc(t('login_btn'))}</button></form>`;
-    $('gate-body').querySelectorAll('[data-r]').forEach(b => b.onclick = () => { role = b.dataset.r; ls.set('er-grole', role); paint(); $('g-pw')?.focus(); });
     $('g-login').onsubmit = async e => {
       e.preventDefault();
       // everyone has a personal password, so the password itself tells who is logging in
@@ -206,7 +202,7 @@ async function renderGate(){
         for (const em of emails) { const { error } = await sb.auth.signInWithPassword({ email:em, password:pw }); if (!error) { email = em; break; } }
         if (!email) { er.textContent = navigator.onLine ? t('wrong_pw') : t('offline'); er.hidden = false; $('g-pw').select(); return; }
         ls.set('er-gemail', email);
-        if ($('g-rem').checked) ls.set('er-temp', null); else { ls.set('er-temp', '1'); try { sessionStorage.setItem('er-alive', '1'); } catch(e){} }
+        ls.set('er-temp', null);
         sb.rpc('log_login').then(() => {}, () => {});
         await afterLogin();
       } catch(err){ console.error(err); er.textContent = t('save_failed'); er.hidden = false; }
@@ -259,6 +255,7 @@ $('logout').onclick = async () => { ls.set('er-temp', null); try { await sb.auth
 
 /* ================= tabs ================= */
 const ICONS = {
+  cash:'<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9v.01M18 15v.01"/>',
   home:'<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
   sale:'<path d="M3 7h18l-2 11H5L3 7z"/><path d="M8 7a4 4 0 0 1 8 0"/>',
   stock:'<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
@@ -281,13 +278,14 @@ function paintMode(){
 $('mode-btn').onclick = () => { document.documentElement.classList.toggle('simple'); ls.set('er-mode', isSimple() ? 'simple' : 'full'); document.querySelectorAll('details.more').forEach(d => delete d.dataset.touched); paintMode(); buildTabs(); render(); };
 document.querySelectorAll('details.more > summary').forEach(s => s.addEventListener('click', () => { s.parentElement.dataset.touched = 1; }));
 function buildTabs(){
-  let tabs = isAdmin() ? ['home','sale','stock','rent','customers','fin','report','settings'] : ['home','sale','stock','rent','customers','fin','report'];
-  if (isSimple()) tabs = ['home','sale','rent','customers'];
+  let tabs = isAdmin() ? ['home','cash','sale','stock','rent','customers','fin','report','settings'] : ['home','cash','sale','stock','rent','customers','fin','report'];
+  if (isSimple()) tabs = ['home','cash','sale','rent','customers'];
   if (!tabs.includes(S.tab)) S.tab = 'home';
   placeHome(S.tab === 'home');
   paintMode();
   $('tabs').innerHTML = tabs.map(k => `<button data-tab="${k}" role="tab" aria-selected="${k===S.tab}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg><span>${esc(t('tab_' + k))}</span></button>`).join('');
-  ['home','sale','stock','rent','customers','fin','report','settings'].forEach(k => $('v-' + k).hidden = k !== S.tab);
+  ['home','cash','sale','stock','rent','customers','fin','report','settings'].forEach(k => $('v-' + k).hidden = k !== S.tab);
+  if (S.tab !== 'cash') $('h-cash').innerHTML = '';   // the register card lives on one page at a time (same ids as on Finance)
   $('p-add').hidden = $('p-add-veh').hidden = !isAdmin();
 }
 $('tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.tab = b.dataset.tab; if (S.tab === 'fin') S.fin.ready = null; closeSheet(); buildTabs(); render(); window.scrollTo(0, 0); };
@@ -2172,7 +2170,7 @@ const finClick = async e => {
     } else if (id === 'fn-reopen') { await q(sb.rpc('cash_reopen')); await loadFin(); reFin(); }
   } catch(err){ fail(err); btn.disabled = false; }
 };
-const reFin = () => S.tab === 'home' ? paintHomeCash() : renderFin();
+const reFin = () => S.tab === 'cash' ? paintHomeCash() : renderFin();
 $('fn-body').onclick = finClick;
 /* stock change with a reason: received, write-off, damaged, correction … (kept in stock_moves) */
 function openStockAdjust(p, sign){
@@ -2309,7 +2307,6 @@ const HOME_BACK = {};
 // the existing sale picker, cart and rental form are moved onto the home page (their buttons keep working) and back again
 function placeHome(on){
   document.documentElement.classList.toggle('athome', on);
-  if (!on && $('h-cash')) { $('h-cash').hidden = true; $('h-cash').innerHTML = ''; $('h-close').classList.remove('on'); }
   for (const [id, slot] of HOME_PARTS) {
     const el = $(id); if (!el) continue;
     if (!HOME_BACK[id]) HOME_BACK[id] = { parent:el.parentNode, next:el.nextSibling };
@@ -2322,61 +2319,57 @@ const go = tab => { S.tab = tab; closeSheet(); buildTabs(); render(); window.scr
 function renderHome(){
   const m = hMode();
   $('h-mode').innerHTML = [['sale', 'tab_sale'], ['rent', 'tab_rent']].map(([k, l]) => `<button type="button" role="tab" data-m="${k}" aria-selected="${m === k}">${esc(t(l))}</button>`).join('');
-  $('h-sale').hidden = m !== 'sale'; $('h-rent').hidden = m !== 'rent';
+  $('h-sale').dataset.off = m !== 'sale'; $('h-rent').dataset.off = m !== 'rent';   // phones: one form at a time; wide screens show both
   renderSale(); renderRent();
   $('h-go-settings').hidden = !isAdmin();
-  const today = dayKey(new Date());
-  // sold today
-  const sales = S.sales.filter(x => x.day === today);
-  $('h-sold-sum').textContent = sales.length ? moneyMulti(sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {})) : '';
-  $('h-sold').innerHTML = sales.length ? sales.map(x => `<div class="hrow" data-id="${x.id}"><span class="num muted">${fmtTs(x.created_at).slice(-5)}</span>
-      <span class="hrow-n">${esc((x.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join(', '))}<small>${esc(tPay(x.payment))}${x.seller ? ' · ' + esc(x.seller) : ''}</small></span>
-      <b class="num">${money(x.total, x.currency)}</b><button type="button" class="btn ghost small" data-act="srep" title="${esc(t('report_btn'))}">📤</button></div>`).join('')
-    : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
-  // rented now: the three that are due back first
+}
+/* cash desk: vehicles out now, today's rentals and sales (with their buttons), the register card to close the day */
+function renderCash(){
+  const today = dayKey(new Date()), adm = isAdmin();
+  const edit = `${adm ? `<button type="button" class="btn ghost small" data-act="redit" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">✏️</button>` : ''}`;
   const act = S.rentals.filter(r => r.status === 'active').sort((a, b) => String(a.ends_at || '9').localeCompare(String(b.ends_at || '9')));
   $('h-now-n').textContent = act.length || '';
-  $('h-now').innerHTML = act.length ? act.slice(0, 3).map(r => `<div class="hnowrow" data-id="${r.id}"><span class="hrow-n"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}</small></span>
-      ${dueBadge(r)}<span class="row" style="gap:4px;flex-wrap:nowrap">${isAdmin() ? `<button type="button" class="btn ghost small" data-act="redit" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">✏️</button>` : ''}<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></span></div>`).join('')
-      + (act.length > 3 ? `<button type="button" class="btn ghost small" data-go="rent">${esc(t('h_all_n').replace('{n}', act.length))}</button>` : '')
+  $('h-now').innerHTML = act.length ? act.map(r => `<div class="hnowrow" data-id="${r.id}"><span class="hrow-n"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}${r.phone ? ' · ' + esc(r.phone) : ''}</small></span>
+      ${dueBadge(r)}<span class="row" style="gap:4px;flex-wrap:nowrap">${edit}<button type="button" class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></span></div>`).join('')
     : `<div class="small muted">${esc(t('nothing_rented'))}</div>`;
-  // rented today: a card with the vehicle's photo
   const rents = S.rentals.filter(r => r.day === today && r.status !== 'cancelled');
   $('h-rent-sum').textContent = rents.length ? money(rents.reduce((a, r) => a + rentSum(r), 0)) : '';
   $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0];
     return `<div class="hcard" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="tag ${r.status === 'active' ? '' : 'out'}">${esc(t(r.status === 'active' ? 'h_out' : 'h_back'))}</span></div>
       <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')} · ${fmtTs(r.created_at).slice(-5)}</small>${r.status === 'active' ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
-      <div class="hcard-a">${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎 ${esc(t('send_files'))}</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${isAdmin() ? `<button type="button" class="btn ghost small" data-act="redit" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">✏️</button>` : ''}</div></div>`; }).join('')
+      <div class="hcard-a">${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎 ${esc(t('send_files'))}</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${edit}</div></div>`; }).join('')
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
+  const sales = S.sales.filter(x => x.day === today);
+  $('h-sold-sum').textContent = sales.length ? moneyMulti(sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {})) : '';
+  $('h-sold').innerHTML = sales.length ? sales.map(x => `<div class="hrow" data-id="${x.id}"><span class="num muted">${fmtTs(x.created_at).slice(-5)}</span>
+      <span class="hrow-n">${esc((x.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join(', '))}<small>${esc(tPay(x.payment))}${x.seller ? ' · ' + esc(x.seller) : ''}${+x.extra_discount ? ' · −' + money(x.extra_discount, x.currency) : ''}</small></span>
+      <b class="num">${money(x.total, x.currency)}</b><span class="row" style="gap:4px;flex-wrap:nowrap"><button type="button" class="btn ghost small" data-act="srep" title="${esc(t('report_btn'))}">📤</button>${adm ? `<button type="button" class="btn ghost small" data-act="sedit" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">✏️</button>` : ''}</span></div>`).join('')
+    : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
+  if (S.fin.ready) paintHomeCash(); else { $('h-cash').innerHTML = `<div class="panel pad small">${esc(t('loading'))}</div>`; loadFin().then(() => S.tab === 'cash' && paintHomeCash()); }
 }
 $('h-mode').onclick = e => { const b = e.target.closest('[data-m]'); if (!b) return; ls.set('er-hmode', b.dataset.m); renderHome(); };
-$('v-home').addEventListener('click', e => {
+const homeClick = e => {
   const g = e.target.closest('[data-go]'); if (g) return go(g.dataset.go);
   const row = e.target.closest('[data-id]'), a = e.target.closest('[data-act]')?.dataset.act; if (!row || !a) return;
-  if (row.closest('#h-sold')) { const x = S.sales.find(y => y.id === row.dataset.id); if (x && a === 'srep') showReport('sale', saleRepFromRow(x)); return; }
+  if (row.closest('#h-sold')) { const x = S.sales.find(y => y.id === row.dataset.id); if (!x) return;
+    if (a === 'srep') showReport('sale', saleRepFromRow(x)); else if (a === 'sedit' && isAdmin()) askPin(pin => editSale(x, pin)); return; }
   const r = S.rentals.find(y => y.id === row.dataset.id); if (!r) return;
   if (a === 'ret') openReturn(r);
   else if (a === 'contract') viewContract(r);
   else if (a === 'sendall') sendRentalFiles(r);
   else if (a === 'rrep') showReport('rental', rentalReportData(r), { rental:r });
   else if (a === 'redit') openRentalEdit(r.id);
-});
-/* closing the day: the register card (expected cash, counted cash, note) unfolds right on the home page */
+};
+$('v-home').addEventListener('click', homeClick);
+$('v-cash').addEventListener('click', e => { if (!e.target.closest('#h-cash')) homeClick(e); });
+/* closing the day: the register card (expected cash, counted cash, note) on the cash desk page */
 function paintHomeCash(){
-  const box = $('h-cash'); if (!box || box.hidden) return;
+  const box = $('h-cash'); if (!box || S.tab !== 'cash') return;
   if (!S.fin.ready) { box.innerHTML = `<div class="panel pad small">${esc(t(S.fin.ready === false ? 'fin_need_db' : 'loading'))}</div>`; return; }
   $('fn-body').innerHTML = '';   // one copy of the register on the page (the same ids)
   box.innerHTML = cashHtml(dayKey(new Date()));
 }
 $('h-cash').onclick = finClick;
-$('h-close').onclick = async () => {
-  const box = $('h-cash'), open = box.hidden;
-  box.hidden = !open; $('h-close').setAttribute('aria-expanded', open); $('h-close').classList.toggle('on', open);
-  if (!open) { box.innerHTML = ''; return; }
-  box.innerHTML = `<div class="panel pad small">${esc(t('loading'))}</div>`;
-  await Promise.all([reload('sales', 'rentals'), loadFin()]);
-  paintHomeCash(); box.scrollIntoView({ behavior:'smooth', block:'start' }); $('fn-count')?.focus({ preventScroll:true });
-};
 document.querySelectorAll('.brand').forEach(b => { if (b.closest('#app')) { b.style.cursor = 'pointer'; b.dataset.iTitle = 'tab_home'; b.title = t('tab_home'); b.onclick = () => go('home'); } });
 /* closing the shift: counted cash against what should be in the drawer */
 async function closeShift(){
@@ -2498,7 +2491,7 @@ function sendRentalFiles(r){
 }
 
 /* ================= render ================= */
-function render(){ if (!S.user) return; ({ sale:renderSale, stock:renderStock, rent:renderRent, customers:renderCustomers, report:renderReport, fin:renderFin, settings:renderSettings, home:renderHome })[S.tab](); }
+function render(){ if (!S.user) return; ({ sale:renderSale, stock:renderStock, rent:renderRent, customers:renderCustomers, report:renderReport, fin:renderFin, settings:renderSettings, home:renderHome, cash:renderCash })[S.tab](); }
 function renderAll(){
   applyI18n(); buildTabs();
   $('who-name').textContent = S.user?.name || '';

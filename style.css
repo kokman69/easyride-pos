@@ -948,3 +948,16 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 .hcash{animation:hcash .2s ease}.hcash .panel{margin:0}
 @keyframes hcash{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .hcash .specs{grid-template-columns:minmax(0,1fr) auto}.hcash .specs dd{text-align:right}
+
+/* v46: home = the sale and rental forms only; cash desk page */
+.htop{border-top:0;padding-top:0;margin-bottom:14px}
+.htop .btn{flex:1 1 120px;padding:12px}
+.htop .hcashbtn{background:var(--pri,#FFD200);color:var(--pri-ink,#111);border-color:transparent;font-weight:700}
+.home2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+#v-home .hmode{display:none;margin-bottom:12px}
+@media (max-width:1100px){ .home2{grid-template-columns:minmax(0,1fr)} #v-home .hmode{display:grid} #v-home [data-off="true"]{display:none!important} }
+.cashgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.cashgrid .hcards{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+@media (max-width:900px){ .cashgrid{grid-template-columns:minmax(0,1fr)} }
+#v-cash .hnowrow{padding:8px 0}
+#r-final{display:block}

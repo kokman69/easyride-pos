@@ -1,5 +1,6 @@
 /* Translations: [ქართული, English, Русский, 日本語] */
 window.I18N = {
+  "tab_cash": ["სალარო","Cash desk","Касса","レジ"],
   "tab_home": ["მთავარი","Home","Главная","ホーム"],
   "h_sold_today": ["დღეს გაყიდული","Sold today","Продано сегодня","本日の販売"],
   "h_rented_today": ["დღეს გაქირავებული","Rented today","Аренда сегодня","本日のレンタル"],
