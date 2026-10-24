@@ -966,3 +966,12 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 /* v47: product photos only after "choose by photo" */
 .spick:not(.photos) .egrid{display:none!important}
 #sp-photos{align-self:flex-start}
+/* v48: centred home forms; rental cards with a clear status */
+#v-home .hmode{margin:0 auto 16px}
+#v-home .home2{margin:0 auto}
+#v-home .htop{max-width:1100px;margin:0 auto 16px}
+.rstat{position:absolute;left:8px;top:8px;padding:4px 10px;border-radius:999px;font:700 13px var(--f-ui);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.rstat.out{background:#E53935}
+.rstat.back{background:#2E9E4F}
+.hcard.is-out{outline:2px solid rgba(229,57,53,.55)}
+.hcard.is-back{outline:2px solid rgba(46,158,79,.45)}

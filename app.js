@@ -1170,7 +1170,7 @@ function contractStrings(raw, lg){
     vehicle: [tL('t_' + raw.type, lg), raw.unit].filter(Boolean).join(' · '),
     period: rateLabel(raw.rate, lg), start: fmtDT(raw.start), end: raw.end ? fmtDT(raw.end) : '',
     price: `${money(raw.price)}${+raw.disc ? ` (${tL('discount', lg)} −${money(raw.disc)})` : ''}${raw.pay ? ' · ' + tL('pay_' + raw.pay, lg) : ''}`,
-    deposit: +raw.deposit ? money(raw.deposit, raw.dep_cur || 'GEL') + (raw.dep_pay ? ' · ' + tL('pay_' + raw.dep_pay, lg) : '') : '', pen, seller: raw.seller, signedAt: raw.signed_at ? fmtDT(raw.signed_at) : ''
+    deposit: +raw.deposit ? money(raw.deposit, raw.dep_cur || 'GEL') + (raw.dep_pay ? ' · ' + tL('pay_' + raw.dep_pay, lg) : '') : '', pen, seller: raw.seller, signedAt: raw.signed_at ? fmtDT(raw.signed_at) + (raw.base_id ? ' · ' + tL('sig_reused', lg) : '') : ''
   };
 }
 const langChips = cur => `<div class="langpick noprint" role="group" aria-label="${esc(t('contract_lang'))}">${LANGS.map(([k, n]) => `<button type="button" class="chip" data-lang="${k}" aria-pressed="${k === cur}">${esc(n)}</button>`).join('')}</div>`;
@@ -1187,9 +1187,9 @@ function signaturePad(box){
 }
 
 /* shows the agreement for signing; resolves with { lang, blob } or null when cancelled */
-function askSignature(raw){
+function askSignature(raw, prev){
   return new Promise(resolve => {
-    let lg = langFor(raw.nat);
+    let lg = langFor(raw.nat), reuse = !!prev, prevUrl = '';
     openOv(`<div class="row between noprint" style="flex-wrap:wrap;gap:8px"><div class="small muted" style="flex:1;min-width:200px">${esc(t('contract_for_customer'))}</div>${langChips(lg)}</div>
       <div id="ct-body"></div>
       <div class="stack"><div class="small" style="font-weight:700" id="ct-signlbl"></div>
@@ -1197,18 +1197,29 @@ function askSignature(raw){
       <div class="cbar"><button type="button" class="btn" id="ct-clear"></button><button type="button" class="btn" id="ct-cancel"></button><button type="button" class="btn primary big" id="ct-ok" style="width:auto"></button></div>`, 'wide');
     const pad = signaturePad($('ct-pad'));
     const paint = () => {
-      $('ct-body').innerHTML = window.ER_CONTRACT.html(lg, contractStrings(raw, lg));
+      // a customer who signed before: the new agreement carries that signature with its own date; "sign again" is still possible
+      $('ct-body').innerHTML = window.ER_CONTRACT.html(lg, contractStrings(reuse ? { ...raw, signed_at:prev.contract.signed_at, base_id:prev.id } : raw, lg), reuse ? prevUrl : '');
+      $('ct-pad').parentElement.hidden = reuse; $('ct-clear').hidden = reuse;
+      if ($('ct-again')) $('ct-again').hidden = !reuse;
       $('ct-signlbl').textContent = tL('sign_here', lg); $('ct-hint').textContent = tL('sign_here', lg);
-      $('ct-clear').textContent = tL('sign_clear', lg); $('ct-cancel').textContent = tL('cancel', lg); $('ct-ok').textContent = tL('sign_confirm', lg);
+      $('ct-clear').textContent = tL('sign_clear', lg); $('ct-cancel').textContent = tL('cancel', lg); $('ct-ok').textContent = reuse ? tL('sig_use_prev', lg) : tL('sign_confirm', lg);
+      if ($('ct-again')) $('ct-again').textContent = tL('sig_new', lg);
       $('ov').querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === lg));
     };
+    if (prev) {
+      $('ct-cancel').insertAdjacentHTML('beforebegin', '<button type="button" class="btn" id="ct-again"></button>');
+      $('ct-again').onclick = () => { reuse = false; paint(); };
+      q(sb.storage.from('id-photos').createSignedUrl(prev.signature, 600)).then(d => { prevUrl = d.signedUrl; if (reuse && $('ct-body')) paint(); }).catch(e => console.error(e));
+    }
     paint();
     $('ov').querySelector('.langpick').onclick = e => { const b = e.target.closest('[data-lang]'); if (b) { lg = b.dataset.lang; paint(); } };
     $('ct-clear').onclick = () => pad.clear();
     const done = v => { $('ov').onclick = ovClick; closeOv(); resolve(v); };
     $('ct-cancel').onclick = () => done(null);
     const ovClick = $('ov').onclick; $('ov').onclick = null;   // a stray tap outside must not close it mid-signature
-    $('ct-ok').onclick = async () => { if (!pad.has()) { toast(tL('sign_need', lg)); return; } done({ lang:lg, blob: await pad.blob() }); };
+    $('ct-ok').onclick = async () => {
+      if (reuse) { try { const blob = await q(sb.storage.from('id-photos').download(prev.signature)); done({ lang:lg, blob, reuse:prev }); } catch(e){ console.error(e); toast(t('sign_fail')); reuse = false; paint(); } return; }
+      if (!pad.has()) { toast(tL('sign_need', lg)); return; } done({ lang:lg, blob: await pad.blob() }); };
   });
 }
 async function viewContract(r, share, opts = {}){
@@ -1422,11 +1433,14 @@ $('r-save').onclick = async () => {
     const raw = { name:cust.name, doc:cust.doc_type || 'other', idnum:cust.id_number || '', dob:cust.birth_date || '', phone:cust.phone || '', nat:cust.nationality || '',
       type:x.type, unit:units.map(u => u.label).filter(Boolean).join(' + '), rate, start:start.toISOString(), end:row.ends_at, price:row.price, ...(fin.disc ? { list:fin.list, disc:fin.disc } : {}), pay:row.payment, deposit:row.deposit, dep_cur:row.deposit_currency, dep_pay:row.deposit_payment, daily:dailyRate(x.type) || 0, seller:row.seller };
     btn.disabled = false;
-    const sig = await askSignature(raw);
+    // signed before (the latest signed rental of this customer): no new signature needed
+    const prevSigned = S.rentals.filter(y => y.customer_id === cust.id && y.signature && y.contract?.signed_at).sort((p, q2) => String(q2.created_at).localeCompare(String(p.created_at)))[0] || null;
+    const sig = await askSignature(raw, prevSigned);
     if (!sig) return;
     btn.disabled = true;
-    const signedAt = new Date().toISOString();
-    const rows = units.map((u, i) => ({ ...row, ...(i ? { deposit:0, deposit_payment:'' } : {}), unit_id:u.f?.id || null, product_id:u.sp?.id || null, unit_label:u.label, contract:{ v:1, lang:sig.lang, signed_at:signedAt, raw } }));
+    const signedAt = sig.reuse ? sig.reuse.contract.signed_at : new Date().toISOString();
+    const raw2 = sig.reuse ? { ...raw, base_id:sig.reuse.id } : raw;
+    const rows = units.map((u, i) => ({ ...row, ...(i ? { deposit:0, deposit_payment:'' } : {}), unit_id:u.f?.id || null, product_id:u.sp?.id || null, unit_label:u.label, contract:{ v:1, lang:sig.lang, signed_at:signedAt, raw:raw2 } }));
     const savedAll = await q(sb.from('rentals').insert(rows).select());
     const saved = savedAll[0];
     try { const path = `contracts/${saved.id}.png`; await uploadBlob('id-photos', path, sig.blob, 'image/png'); await q(sb.from('rentals').update({ signature:path }).in('id', savedAll.map(y => y.id)));
@@ -2333,16 +2347,13 @@ function renderCash(){
   const today = dayKey(new Date()), adm = isAdmin();
   const edit = `${adm ? `<button type="button" class="btn ghost small" data-act="redit" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">✏️</button>` : ''}`;
   const act = S.rentals.filter(r => r.status === 'active').sort((a, b) => String(a.ends_at || '9').localeCompare(String(b.ends_at || '9')));
-  $('h-now-n').textContent = act.length || '';
-  $('h-now').innerHTML = act.length ? act.map(r => `<div class="hnowrow" data-id="${r.id}"><span class="hrow-n"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}${r.phone ? ' · ' + esc(r.phone) : ''}</small></span>
-      ${dueBadge(r)}<span class="row" style="gap:4px;flex-wrap:nowrap">${edit}<button type="button" class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></span></div>`).join('')
-    : `<div class="small muted">${esc(t('nothing_rented'))}</div>`;
-  const rents = S.rentals.filter(r => r.day === today && r.status !== 'cancelled');
-  $('h-rent-sum').textContent = rents.length ? money(rents.reduce((a, r) => a + rentSum(r), 0)) : '';
-  $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0];
-    return `<div class="hcard" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="tag ${r.status === 'active' ? '' : 'out'}">${esc(t(r.status === 'active' ? 'h_out' : 'h_back'))}</span></div>
-      <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')} · ${fmtTs(r.created_at).slice(-5)}</small>${r.status === 'active' ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
-      <div class="hcard-a">${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎 ${esc(t('send_files'))}</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${edit}</div></div>`; }).join('')
+  const rents = [...act, ...S.rentals.filter(r => r.day === today && r.status === 'returned')];
+  const todays = S.rentals.filter(r => r.day === today && r.status !== 'cancelled');
+  $('h-rent-sum').textContent = todays.length ? money(todays.reduce((a, r) => a + rentSum(r), 0)) : '';
+  $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0], out = r.status === 'active';
+    return `<div class="hcard ${out ? 'is-out' : 'is-back'}" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="rstat ${out ? 'out' : 'back'}">${esc(t(out ? 'h_out' : 'h_back'))}</span></div>
+      <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}${r.phone ? ' · ' + esc(r.phone) : ''}</small><small>${fmtTs(r.created_at)}</small>${out ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
+      <div class="hcard-a">${out ? `<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button>` : ''}${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${edit}</div></div>`; }).join('')
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
   const sales = S.sales.filter(x => x.day === today);
   $('h-sold-sum').textContent = sales.length ? moneyMulti(sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {})) : '';
