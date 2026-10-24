@@ -954,10 +954,15 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 .htop .btn{flex:1 1 120px;padding:12px}
 .htop .hcashbtn{background:var(--pri,#FFD200);color:var(--pri-ink,#111);border-color:transparent;font-weight:700}
 .home2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
-#v-home .hmode{display:none;margin-bottom:12px}
-@media (max-width:1100px){ .home2{grid-template-columns:minmax(0,1fr)} #v-home .hmode{display:grid} #v-home [data-off="true"]{display:none!important} }
+#v-home .hmode{display:grid;margin-bottom:14px;max-width:720px}
+#v-home .hmode button{padding:18px 12px;font-size:17px}
+.home2{grid-template-columns:minmax(0,1fr)!important;max-width:1100px}
+#v-home [data-off="true"]{display:none!important}
 .cashgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
 .cashgrid .hcards{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
 @media (max-width:900px){ .cashgrid{grid-template-columns:minmax(0,1fr)} }
 #v-cash .hnowrow{padding:8px 0}
 #r-final{display:block}
+/* v47: product photos only after "choose by photo" */
+.spick:not(.photos) .egrid{display:none!important}
+#sp-photos{align-self:flex-start}

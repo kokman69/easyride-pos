@@ -278,9 +278,11 @@ function paintMode(){
 $('mode-btn').onclick = () => { document.documentElement.classList.toggle('simple'); ls.set('er-mode', isSimple() ? 'simple' : 'full'); document.querySelectorAll('details.more').forEach(d => delete d.dataset.touched); paintMode(); buildTabs(); render(); };
 document.querySelectorAll('details.more > summary').forEach(s => s.addEventListener('click', () => { s.parentElement.dataset.touched = 1; }));
 function buildTabs(){
-  let tabs = isAdmin() ? ['home','cash','sale','stock','rent','customers','fin','report','settings'] : ['home','cash','sale','stock','rent','customers','fin','report'];
-  if (isSimple()) tabs = ['home','cash','sale','rent','customers'];
+  // sale and rental are filled on the home page; finance → only the register card, now on the cash desk page
+  let tabs = isAdmin() ? ['home','cash','stock','customers','report','settings'] : ['home','cash','stock','customers','report'];
+  if (isSimple()) tabs = ['home','cash','customers'];
   if (!tabs.includes(S.tab)) S.tab = 'home';
+  if (S.tab !== 'home') S.hmode = '';   // back on the home page: the two buttons, nothing open
   placeHome(S.tab === 'home');
   paintMode();
   $('tabs').innerHTML = tabs.map(k => `<button data-tab="${k}" role="tab" aria-selected="${k===S.tab}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg><span>${esc(t('tab_' + k))}</span></button>`).join('');
@@ -735,6 +737,8 @@ const hasIdPhoto = (boxId, c) => !!(PICK[boxId]?.photo || c?.photo);
 /* phones / tablets: pick from drop-downs instead of the catalogue grid */
 function renderSimplePick(){
   const kind = saleKind(), qq = $('s-q').value.trim();
+  $('s-pick').classList.toggle('photos', !!S.spPhotos);
+  $('sp-photos').textContent = (S.spPhotos ? '✕ ' : '🖼 ') + t(S.spPhotos ? 'sp_photos_hide' : 'sp_photos');
   const left = p => (+p.qty || 0) - S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0);
   $('sp-veh').hidden = $('sp-vgrid').hidden = kind === 'easy'; $('sp-easy').hidden = kind === 'veh';
   if (kind !== 'veh') {
@@ -762,6 +766,7 @@ function renderSimplePick(){
       <div class="etb"><span class="num etc">${esc(plateOf(p) || p.year || '')}</span><span class="etn">${esc(pName(p))}</span><span class="small muted">${esc([locData(p.color), plateOf(p) ? p.year : ''].filter(Boolean).join(' · '))}</span><span class="num etp">${+p.price ? money(p.price) : esc(t('negotiable'))}</span></div></div>`; }).join('');
 }
 $('sp-type').onchange = e => { S.spType = e.target.value; renderSale(); };
+$('sp-photos').onclick = () => { S.spPhotos = !S.spPhotos; renderSimplePick(); };
 ['sp-model','sp-item'].forEach(id => $(id).onchange = e => { const v = e.target.value; if (!v) return; addToCart(v); e.target.value = ''; });
 $('sp-egrid').onclick = $('sp-vgrid').onclick = e => { const z = e.target.closest('[data-gal]'); if (z) return showGallery(S.products.find(x => x.id === z.dataset.gal), true);
   const tl = e.target.closest('.etile'); if (tl) addToCart(tl.dataset.id); };
@@ -2314,12 +2319,12 @@ function placeHome(on){
     else if (el.parentNode !== HOME_BACK[id].parent) HOME_BACK[id].parent.insertBefore(el, HOME_BACK[id].next && HOME_BACK[id].next.parentNode === HOME_BACK[id].parent ? HOME_BACK[id].next : null);
   }
 }
-const hMode = () => ls.get('er-hmode') === 'rent' ? 'rent' : 'sale';
+const hMode = () => S.hmode || '';
 const go = tab => { S.tab = tab; closeSheet(); buildTabs(); render(); window.scrollTo(0, 0); };
 function renderHome(){
   const m = hMode();
-  $('h-mode').innerHTML = [['sale', 'tab_sale'], ['rent', 'tab_rent']].map(([k, l]) => `<button type="button" role="tab" data-m="${k}" aria-selected="${m === k}">${esc(t(l))}</button>`).join('');
-  $('h-sale').dataset.off = m !== 'sale'; $('h-rent').dataset.off = m !== 'rent';   // phones: one form at a time; wide screens show both
+  $('h-mode').innerHTML = [['sale', 'tab_sale', '🛒'], ['rent', 'tab_rent', '🛵']].map(([k, l, ic]) => `<button type="button" role="tab" data-m="${k}" aria-selected="${m === k}">${ic} ${esc(t(l))}</button>`).join('');
+  $('h-sale').dataset.off = m !== 'sale'; $('h-rent').dataset.off = m !== 'rent';   // one form at a time, opened by its button
   renderSale(); renderRent();
   $('h-go-settings').hidden = !isAdmin();
 }
@@ -2347,7 +2352,7 @@ function renderCash(){
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
   if (S.fin.ready) paintHomeCash(); else { $('h-cash').innerHTML = `<div class="panel pad small">${esc(t('loading'))}</div>`; loadFin().then(() => S.tab === 'cash' && paintHomeCash()); }
 }
-$('h-mode').onclick = e => { const b = e.target.closest('[data-m]'); if (!b) return; ls.set('er-hmode', b.dataset.m); renderHome(); };
+$('h-mode').onclick = e => { const b = e.target.closest('[data-m]'); if (!b) return; S.hmode = S.hmode === b.dataset.m ? '' : b.dataset.m; renderHome(); };
 const homeClick = e => {
   const g = e.target.closest('[data-go]'); if (g) return go(g.dataset.go);
   const row = e.target.closest('[data-id]'), a = e.target.closest('[data-act]')?.dataset.act; if (!row || !a) return;
