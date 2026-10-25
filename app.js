@@ -934,7 +934,19 @@ function renderStock(){
   const pool = S.products.filter(inKind);
   const counts = {}; pool.forEach(p => counts[p.type] = (counts[p.type] || 0) + 1);
   if (S.pType && !counts[S.pType]) S.pType = '';
-  typeChips($('p-types'), S.pType, x => { S.pType = x; renderStock(); }, counts);
+  // vehicles: one button with the chosen kind ("All ▾"), tapping it opens the kinds as a tidy grid; items need no kinds
+  $('p-types').hidden = easy;
+  if (!easy) {
+    const keys = TYPE_KEYS.filter(k => counts[k]), all = pool.length;
+    const cur = S.pType ? `${tType(S.pType)} <span class="num">${counts[S.pType] || 0}</span>` : `${esc(t('all'))} <span class="num">${all}</span>`;
+    $('p-types').className = 'catpick' + (S.pCatOpen ? ' open' : '');
+    $('p-types').innerHTML = `<button type="button" class="cat-cur" data-cat-toggle aria-expanded="${!!S.pCatOpen}"><span class="cat-lbl">${esc(t('col_type'))}:</span> <b>${cur}</b><span class="cat-arr" aria-hidden="true">▾</span></button>
+      ${S.pCatOpen ? `<div class="cat-grid">${[['', t('all'), all], ...keys.map(k => [k, tType(k), counts[k]])].map(([k, l, n]) => `<button type="button" class="chip" data-t="${k}" aria-pressed="${(S.pType || '') === k}">${esc(l)} <span class="num">${n}</span></button>`).join('')}</div>` : ''}`;
+    $('p-types').onclick = e => {
+      if (e.target.closest('[data-cat-toggle]')) { S.pCatOpen = !S.pCatOpen; renderStock(); return; }
+      const b = e.target.closest('[data-t]'); if (!b) return; S.pType = b.dataset.t; S.pCatOpen = false; renderStock();
+    };
+  }
   const units = S.products.reduce((a, p) => a + (+p.qty || 0), 0), value = S.products.reduce((a, p) => a + (+p.qty || 0) * (+p.price || 0), 0);
   const out = S.products.filter(p => !(+p.qty > 0)).length, veh = S.products.filter(p => VEH.includes(p.type)).reduce((a, p) => a + (+p.qty || 0), 0);
   $('p-stats').innerHTML = [['st_units', units], ['st_vehicles', veh]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('');

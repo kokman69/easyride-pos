@@ -1104,3 +1104,15 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
   header .who #logout{display:flex!important;align-items:center;justify-content:center;gap:0;padding:0!important;color:transparent;text-indent:0;overflow:hidden}
   header .who #logout::before{display:block;flex:none;margin:0;background:var(--ink);transform:translateX(1px)}
 }
+/* v67: stock kinds — one "Type: All ▾" button that opens the kinds as an even grid */
+.catpick{display:flex;flex-direction:column;gap:8px}
+.catpick .cat-cur{display:flex;align-items:center;gap:6px;width:100%;min-height:46px;padding:10px 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:15px;cursor:pointer;text-align:left}
+.catpick .cat-cur .cat-lbl{color:var(--muted)}
+.catpick .cat-cur b{font-weight:700;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.catpick .cat-cur .num{font-size:12px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--line)}
+.catpick .cat-arr{margin-left:auto;transition:transform .18s;font-size:14px;color:var(--muted)}
+.catpick.open .cat-arr{transform:rotate(180deg)}
+.catpick .cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.catpick .cat-grid .chip{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:44px;padding:8px 12px;border-radius:12px;white-space:nowrap;min-width:0;font-size:14px}
+.catpick .cat-grid .chip .num{font-size:12px;opacity:.75}
+@media (max-width:600px){ .catpick .cat-grid{grid-template-columns:repeat(2,minmax(0,1fr))} }
