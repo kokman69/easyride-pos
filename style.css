@@ -1116,3 +1116,8 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 .catpick .cat-grid .chip{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:44px;padding:8px 12px;border-radius:12px;white-space:nowrap;min-width:0;font-size:14px}
 .catpick .cat-grid .chip .num{font-size:12px;opacity:.75}
 @media (max-width:600px){ .catpick .cat-grid{grid-template-columns:repeat(2,minmax(0,1fr))} }
+/* v68: photo tiles — the picture stays inside its box on iPhone Safari too (absolute image in a fixed-ratio frame) */
+.eti{display:block;overflow:hidden;flex:none;aspect-ratio:3/4;height:auto;width:100%}
+.eti > img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.eti > span{position:absolute;inset:0;display:grid;place-items:center}
+@supports not (aspect-ratio:1/1){ .eti{height:0;padding-top:133%} }
