@@ -279,9 +279,10 @@ $('mode-btn').onclick = () => { document.documentElement.classList.toggle('simpl
 document.querySelectorAll('details.more > summary').forEach(s => s.addEventListener('click', () => { s.parentElement.dataset.touched = 1; }));
 function buildTabs(){
   // sale and rental are filled on the home page; finance → only the register card, now on the cash desk page
-  let tabs = isAdmin() ? ['home','cash','stock','customers','report','settings'] : ['home','cash','stock','customers','report'];
-  if (isSimple()) tabs = ['home','cash','customers'];
-  if (!tabs.includes(S.tab)) S.tab = 'home';
+  const allowed = isAdmin() ? ['home','cash','stock','customers','report','settings'] : ['home','cash','stock','customers','report'];
+  // phones: a short bottom bar, the other pages are opened from the home menu (stock, report, settings)
+  const tabs = isSimple() ? ['home','cash','customers'] : allowed;
+  if (!allowed.includes(S.tab)) S.tab = 'home';
   if (S.tab !== 'home') S.hmode = '';   // back on the home page: the two buttons, nothing open
   placeHome(S.tab === 'home');
   paintMode();
@@ -775,7 +776,7 @@ const addByCode = () => { const p = byCode($('sp-code').value, S.products.filter
 $('sp-code').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if (!addByCode()) toast(t('code_none')); } };
 $('sp-hit').onclick = e => { if (e.target.closest('[data-id]')) addByCode(); };
 /* sale catalogue: "all" (vehicles + items), "vehicles" or "items" */
-const saleKind = () => ['all', 'veh', 'easy'].includes(S.sKind) ? S.sKind : 'all';
+const saleKind = () => ['veh', 'easy'].includes(S.sKind) ? S.sKind : 'veh';
 /* a vehicle can be for sale, for rent or both (set when it is added / edited) */
 const purposeOf = p => p?.purpose || 'both', forSale = p => purposeOf(p) !== 'rent', forRent = p => purposeOf(p) !== 'sale';
 const inSaleKind = (p, k = saleKind()) => forSale(p) && (k === 'all' || (k === 'easy' ? isEasy(p) : !isEasy(p)));
@@ -800,7 +801,7 @@ function renderSale(){
   renderDayBanner();
   if (isSimple() || S.tab === 'home') renderSimplePick();
   const kind = saleKind(), easy = kind === 'easy';
-  $('s-kind').innerHTML = [['all','kind_all'],['veh','kind_veh'],['easy','kind_items']].map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${kind === k}">${esc(t(l))} <span class="num">${S.products.filter(p => inSaleKind(p, k)).length}</span></button>`).join('');
+  $('s-kind').innerHTML = [['veh','kind_veh'],['easy','kind_items']].map(([k, l]) => `<button type="button" class="chip" data-k="${k}" aria-pressed="${kind === k}">${esc(t(l))} <span class="num">${S.products.filter(p => inSaleKind(p, k)).length}</span></button>`).join('');
   $('s-add-easy').hidden = !(kind !== 'veh' && isAdmin());
   $('s-q').placeholder = t(kind === 'veh' ? 'search_items' : 'easy_search');
   const pool = S.products.filter(p => inSaleKind(p));

@@ -1015,7 +1015,7 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
   #v-home .hmode button{padding:13px 6px;font-size:16px;white-space:nowrap;border-radius:12px;background:var(--surface);border:1px solid var(--line);color:var(--ink);min-width:0;transition:background .18s,color .18s}
   #v-home .hmode button[aria-selected="true"]{background:var(--pri,#FFD200);color:var(--pri-ink,#111)}
   /* all / vehicles / items: three equal parts, numbers as small badges */
-  #s-kind.seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;align-self:stretch;gap:4px;border-radius:14px}
+  #s-kind.seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;align-self:stretch;gap:4px;border-radius:14px}
   #s-kind.seg .chip{padding:9px 4px;font-size:14px;border-radius:10px;white-space:nowrap;min-width:0;display:flex;align-items:center;justify-content:center;gap:5px}
   #s-kind.seg .chip .num{font-size:11px;line-height:1;padding:3px 6px;border-radius:999px;background:var(--line);color:inherit}
   #s-kind.seg .chip[aria-pressed="true"] .num{background:rgba(0,0,0,.12)}
@@ -1061,3 +1061,9 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
   header .who{gap:4px}
   header .who .icon-btn,header .who #logout{width:34px;height:34px;min-width:34px}
 }
+/* v62: vehicles / items — two equal halves everywhere; deposit field as wide as the price field */
+#s-kind.seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;max-width:520px;align-self:stretch;gap:4px;border-radius:14px}
+#s-kind.seg .chip{justify-content:center;display:flex;align-items:center;gap:6px;padding:10px 6px;white-space:nowrap;min-width:0}
+.depwrap{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
+.depwrap input{width:100%}
+@media (max-width:600px){ #s-kind.seg{max-width:none} }
