@@ -988,3 +988,5 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 /* v55: add-time button */
 .xtbtn{background:var(--pri,#FFD200);color:var(--pri-ink,#111);border-color:transparent;font-weight:700}
 .xtdue{cursor:pointer;display:inline-block}
+/* v60: home — the sale card appears only when something is in it */
+#h-sale-cart .receipt.cart-empty{display:none!important}

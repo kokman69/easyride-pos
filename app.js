@@ -857,6 +857,7 @@ const lineTotal = l => r2(l.qty * l.unitPrice * (1 - (+l.pct || 0) / 100));
 const discOf = (v, base) => { const s = String(v ?? '').replace(',', '.').trim(); if (!s) return 0; const n = parseFloat(s); if (!(n > 0)) return 0; return r2(Math.min(base, /%$/.test(s) ? base * n / 100 : n)); };
 function cartTotals(){ const sub = S.cart.reduce((a, l) => a + lineTotal(l), 0), list = S.cart.reduce((a, l) => a + l.qty * l.listPrice, 0), extra = discOf($('c-disc').value, sub); return { sub, list, extra, total: r2(Math.max(0, sub - extra)) }; }
 function renderCart(){
+  $('receipt').classList.toggle('cart-empty', !S.cart.length);   // on the home page the sale card shows up once something is picked
   $('c-seller').innerHTML = sellerOpts($('c-seller').value || S.user?.name);
   if (!PICK['c-cust']) mountPicker('c-cust');
   if (S.cart.length && document.activeElement?.closest('#c-lines') && $('c-lines').querySelectorAll('.line').length === S.cart.length) { updTotals(); return; }
