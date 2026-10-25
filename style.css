@@ -975,3 +975,4 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 .rstat.back{background:#2E9E4F}
 .hcard.is-out{outline:2px solid rgba(229,57,53,.55)}
 .hcard.is-back{outline:2px solid rgba(46,158,79,.45)}
+.cashout{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px dashed var(--line);border-radius:12px}

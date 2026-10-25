@@ -1504,6 +1504,8 @@ async function openReturn(r){
     const back = depBack(), feePay = $('rt-pay')?.value || '', at = new Date();
     try {
       await q(sb.rpc('return_rental', { p_id:r.id, p_fee:fee, p_payment:feePay }));
+      const keptAmt = r2(+r.deposit - back);
+      if ($('rt-dep') && keptAmt > 0) { try { await q(sb.rpc('set_deposit_kept', { p_id:r.id, p_kept:keptAmt })); } catch(e){ console.error(e); toast(t('dep_kept_fail')); } }
       closeOv(); toast(t('return_saved') + (fee ? ' · +' + money(fee) : '')); await reload('rentals');
       const rr = S.rentals.find(x => x.id === r.id) || r;
       showReport('ret', { dep:+r.deposit || 0, back, cur:r.deposit_currency || 'GEL', payLabel: lg => tL('pay_' + (r.deposit_payment || 'cash'), lg),
@@ -2081,9 +2083,14 @@ function cashFlow(day){
   const depIn = S.rentals.filter(r => r.day === day && depCash(r)).reduce((a, r) => a + (+r.deposit || 0), 0);
   const backAt = r => r.returned_at || r.cancelled_at;
   const depOut = S.rentals.filter(r => depCash(r) && r.status !== 'active' && backAt(r) && dayKey(new Date(backAt(r))) === day).reduce((a, r) => a + (+r.deposit || 0), 0);
-  const exp = S.fin.expenses.filter(x => x.day === day && gel(x) && isCash(x.payment)).reduce((a, x) => a + (+x.amount || 0), 0);
+  const dayCash = S.fin.expenses.filter(x => x.day === day && gel(x) && isCash(x.payment));
+  const exp = dayCash.filter(x => x.category !== 'collect').reduce((a, x) => a + (+x.amount || 0), 0);
+  const out = dayCash.filter(x => x.category === 'collect').reduce((a, x) => a + (+x.amount || 0), 0);
   const opening = +S.fin.cash?.opening || 0;
-  return { opening, sales, rentFees, late, depIn, depOut, exp, expected:r2(opening + sales + rentFees + late + depIn - depOut - exp) };
+  const kept = S.rentals.filter(r => +r.deposit_kept && (r.deposit_currency || 'GEL') === 'GEL' && r.returned_at && dayKey(new Date(r.returned_at)) === day).reduce((a, r) => a + (+r.deposit_kept || 0), 0);
+  const held = S.rentals.filter(r => r.status === 'active' && depCash(r)).reduce((a, r) => a + (+r.deposit || 0), 0);
+  // deposits lie next to the register, not in it: they do not change what the register should hold
+  return { opening, sales, rentFees, late, depIn, depOut, kept, held, exp, out, expected:r2(opening + sales + rentFees + late + kept - exp - out) };
 }
 function finRange(){ return [$('fn-from').value || '0000', $('fn-to').value || '9999']; }
 function renderFin(){
@@ -2120,14 +2127,23 @@ function dashHtml(a, b, inR){
   <div class="panel pad row" style="gap:8px;flex-wrap:wrap"><b style="margin-right:auto">${esc(t('fin_export'))}</b>
     <button type="button" class="btn small" data-csv="sales">⬇ ${esc(t('tab_sale'))}</button><button type="button" class="btn small" data-csv="rentals">⬇ ${esc(t('tab_rent'))}</button><button type="button" class="btn small" data-csv="expenses">⬇ ${esc(t('fin_expenses'))}</button></div>`;
 }
+/* today's cash taken out and cash expenses, each removable by an admin */
+function outList(day){
+  const l = S.fin.expenses.filter(x => x.day === day && isCash(x.payment)); if (!l.length) return '';
+  return `<div class="sflist">${l.map(x => `<div class="sfrow"><span>${x.category === 'collect' ? '💸' : '🧾'}</span><span class="hrow-n">${esc(x.category === 'collect' ? t('cash_out_btn') : t('ec_' + x.category))}${x.note ? `<small>${esc(x.note)}</small>` : ''}</span><span class="num">−${money(x.amount, x.currency)}${isAdmin() ? ` <button type="button" class="btn ghost small danger" data-del-exp="${x.id}">✕</button>` : ''}</span></div>`).join('')}</div>`;
+}
 function cashHtml(today){
   const c = S.fin.cash, f = cashFlow(today);
-  const rows = [['fin_opening', f.opening], ['fin_cash_sales', f.sales], ['fin_cash_rent', f.rentFees], ['fin_cash_late', f.late], ['fin_dep_in', f.depIn], ['fin_dep_out', -f.depOut], ['fin_cash_exp', -f.exp]];
-  const tbl = `<dl class="specs">${rows.map(([k, v]) => `<dt>${esc(t(k))}</dt><dd class="num">${money(v)}</dd>`).join('')}<dt><b>${esc(t('fin_expected'))}</b></dt><dd class="num"><b>${money(f.expected)}</b></dd></dl>`;
+  const rows = [['fin_opening', f.opening], ['fin_cash_sales', f.sales], ['fin_cash_rent', f.rentFees], ['fin_cash_late', f.late], ['fin_dep_kept', f.kept], ['fin_cash_exp', -f.exp], ['fin_cash_out', -f.out]];
+  const heldNote = `<div class="small muted">🔒 ${esc(t('fin_dep_apart'))}: <b class="num">${money(f.held)}</b></div>`;
+  const tbl = heldNote + `<dl class="specs">${rows.map(([k, v]) => `<dt>${esc(t(k))}</dt><dd class="num">${money(v)}</dd>`).join('')}<dt><b>${esc(t('fin_expected'))}</b></dt><dd class="num"><b>${money(f.expected)}</b></dd></dl>`;
   let body;
   if (!c) body = `<p class="small muted" style="margin:0">${esc(t('fin_cash_closed_hint'))}</p>
     <div class="row" style="gap:8px;flex-wrap:nowrap"><input id="fn-open-amt" type="number" min="0" step="0.01" inputmode="decimal" placeholder="${esc(t('fin_opening'))}"><button type="button" class="btn primary" id="fn-open">${esc(t('fin_open'))}</button></div>`;
   else if (!c.closed_at) body = `<div class="small muted">${esc(t('fin_opened'))} ${fmtTs(c.opened_at)} · ${esc(c.opened_by || '')}</div>${tbl}
+    ${outList(today)}
+    <div class="cashout"><div class="row" style="gap:8px;flex-wrap:wrap"><input id="fn-out-amt" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="${esc(t('col_amount'))}" style="flex:1;min-width:110px"><input id="fn-out-note" maxlength="200" placeholder="${esc(t('note'))}" style="flex:2;min-width:140px"></div>
+      <div class="row" style="gap:8px"><button type="button" class="btn" id="fn-out" style="flex:1">💸 ${esc(t('cash_out_btn'))}</button><button type="button" class="btn" id="fn-exp" style="flex:1">🧾 ${esc(t('cash_exp_btn'))}</button></div></div>
     <div class="row" style="gap:8px;flex-wrap:nowrap"><input id="fn-count" type="number" min="0" step="0.01" inputmode="decimal" placeholder="${esc(t('fin_counted'))}"><button type="button" class="btn primary" id="fn-close">🔒 ${esc(t('h_close_day'))}</button></div>
     <input id="fn-cnote" placeholder="${esc(t('note'))}">`;
   else body = `<div class="small muted">${esc(t('fin_closed_at'))} ${fmtTs(c.closed_at)} · ${esc(c.closed_by || '')}</div>
@@ -2178,6 +2194,12 @@ const finClick = async e => {
       btn.disabled = true;
       await q(sb.from('expenses').insert({ amount:amt, category:$('fe-cat').value, payment:$('fe-pay').value, note:$('fe-note').value.trim(), seller:S.user?.name || '' }));
       toast(t('saved') + ' · ' + money(amt)); await loadFin(); reFin();
+    } else if (id === 'fn-out' || id === 'fn-exp') {
+      const amt = r2($('fn-out-amt').value), note = $('fn-out-note').value.trim(); if (!(amt > 0)) { toast(t('fin_need_amt')); return; }
+      if (id === 'fn-exp' && !note) { toast(t('sr_need_note')); $('fn-out-note').focus(); return; }
+      btn.disabled = true;
+      await q(sb.from('expenses').insert({ amount:amt, category: id === 'fn-out' ? 'collect' : 'other', payment:'cash', note, seller:S.user?.name || '' }));
+      toast(t('saved') + ' · −' + money(amt)); await loadFin(); reFin();
     } else if (id === 'fn-open') {
       const v = $('fn-open-amt').value; if (v === '' || +v < 0) { toast(t('fin_need_amt')); return; }
       btn.disabled = true; await q(sb.rpc('cash_open', { p_opening:r2(v), p_note:'' })); await loadFin(); reFin();
@@ -2227,6 +2249,7 @@ function dayFigures(day){
   S.sales.filter(s => s.day === day && gel(s)).forEach(s => add(s.payment, s.total, (s.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join(', ')));
   S.rentals.filter(r => r.day === day && r.status !== 'cancelled').forEach(r => add(r.payment, r.price, `${t('tab_rent')} · ${r.unit_label || tType(r.type)}`));
   S.rentals.filter(r => +r.late_fee && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.late_payment, r.late_fee, `${t('late_fee')} · ${r.unit_label || ''}`));
+  S.rentals.filter(r => +r.deposit_kept && (r.deposit_currency || 'GEL') === 'GEL' && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.deposit_payment || 'cash', r.deposit_kept, `${t('dep_kept')} · ${r.unit_label || ''}`));
   const sum = p => r2(items.filter(i => p(i.pay)).reduce((a, i) => a + i.amount, 0));
   const cash = sum(p => p === 'cash'), card = sum(p => p === 'card'), transfer = sum(p => p === 'transfer'), total = sum(() => true);
   // deposits per currency: held at the start, received, returned, held at the end
@@ -2236,11 +2259,12 @@ function dayFigures(day){
     const c = cur(r), v = +r.deposit, open = r.status === 'active', b = bd(r);
     if (r.day < day && (open || (b && b >= day))) dep.start[c] = (dep.start[c] || 0) + v;
     if (r.day === day) dep.in[c] = (dep.in[c] || 0) + v;
-    if (!open && b === day) dep.out[c] = (dep.out[c] || 0) + v;
+    if (!open && b === day) dep.out[c] = (dep.out[c] || 0) + v - (+r.deposit_kept || 0);
     if (r.day <= day && (open || (b && b > day))) dep.end[c] = (dep.end[c] || 0) + v;
   });
-  const exp = (S.fin.expenses || []).filter(x => x.day === day && gel(x) && isCash(x.payment)).map(x => ({ amount:+x.amount, name:t('ec_' + x.category) + (x.note ? ' · ' + x.note : '') }));
-  return { items, cash, card, transfer, total, dep, exp, expCash:r2(exp.reduce((a, x) => a + x.amount, 0)) };
+  const collect = r2((S.fin.expenses || []).filter(x => x.day === day && gel(x) && isCash(x.payment) && x.category === 'collect').reduce((a, x) => a + (+x.amount || 0), 0));
+  const exp = (S.fin.expenses || []).filter(x => x.day === day && gel(x) && isCash(x.payment) && x.category !== 'collect').map(x => ({ amount:+x.amount, name:t('ec_' + x.category) + (x.note ? ' · ' + x.note : '') }));
+  return { items, cash, card, transfer, total, dep, exp, collect, expCash:r2(exp.reduce((a, x) => a + x.amount, 0)) };
 }
 const depStr = acc => { const ks = Object.keys(acc).filter(k => acc[k]); return ks.length ? ks.map(k => `${r2(acc[k]).toLocaleString('en-US')} ${k}`).join(' / ') : '0 GEL'; };
 const gelStr = n => `${r2(n).toLocaleString('en-US')} GEL`;
@@ -2271,7 +2295,7 @@ async function openDayReport(day){
     <div class="formgrid">
       <label class="f">${esc(t('day_date'))}<input id="dr-day" type="date" value="${day}" max="${dayKey(new Date())}"></label>
       <label class="f">${esc(t('fin_opening'))}<input id="dr-open" type="number" step="0.01" inputmode="decimal" value="${val('opening_cash', pd.closing_cash ?? 0)}"></label>
-      <label class="f">${esc(t('day_bank'))}<input id="dr-bank" type="number" step="0.01" min="0" inputmode="decimal" value="${val('bank_deposit', 0)}"></label>
+      <label class="f">${esc(t('day_bank'))}<input id="dr-bank" type="number" step="0.01" min="0" inputmode="decimal" value="${val('bank_deposit', f0.collect)}"></label>
       <label class="f">${esc(t('day_working'))}<input id="dr-work" type="number" step="0.01" min="0" inputmode="decimal" value="${val('working_cash', pd.working_cash ?? 91)}"></label>
       <label class="f">${esc(t('day_card_total'))}<input id="dr-cardt" type="number" step="0.01" min="0" inputmode="decimal" value="${val('card_total', r2((+pd.card_total || 0) + f0.card))}"></label>
       <label class="f">${esc(t('note'))}<input id="dr-note" maxlength="500" value="${esc(md.note || '')}"></label>
@@ -2347,12 +2371,17 @@ function renderCash(){
   const today = dayKey(new Date()), adm = isAdmin();
   const edit = `${adm ? `<button type="button" class="btn ghost small" data-act="redit" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">✏️</button>` : ''}`;
   const act = S.rentals.filter(r => r.status === 'active').sort((a, b) => String(a.ends_at || '9').localeCompare(String(b.ends_at || '9')));
-  const rents = [...act, ...S.rentals.filter(r => r.day === today && r.status === 'returned')];
+  // returned today (whenever it was rented) stays on the board in green until the day ends or the same vehicle goes out again
+  const unitKey = r => r.product_id || r.unit_id || r.unit_label || r.id;
+  const backToday = S.rentals.filter(r => r.status === 'returned' && r.returned_at && dayKey(new Date(r.returned_at)) === today
+    && !S.rentals.some(o => o !== r && unitKey(o) === unitKey(r) && o.status !== 'cancelled' && String(o.created_at) > String(r.returned_at)))
+    .sort((a, b) => String(b.returned_at).localeCompare(String(a.returned_at)));
+  const rents = [...act, ...backToday];
   const todays = S.rentals.filter(r => r.day === today && r.status !== 'cancelled');
   $('h-rent-sum').textContent = todays.length ? money(todays.reduce((a, r) => a + rentSum(r), 0)) : '';
   $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0], out = r.status === 'active';
     return `<div class="hcard ${out ? 'is-out' : 'is-back'}" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="rstat ${out ? 'out' : 'back'}">${esc(t(out ? 'h_out' : 'h_back'))}</span></div>
-      <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}${r.phone ? ' · ' + esc(r.phone) : ''}</small><small>${fmtTs(r.created_at)}</small>${out ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
+      <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}${r.phone ? ' · ' + esc(r.phone) : ''}</small><small>${fmtTs(r.created_at)}${out ? '' : ` → ${fmtTs(r.returned_at)}`}</small>${out ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
       <div class="hcard-a">${out ? `<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button>` : ''}${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${edit}</div></div>`; }).join('')
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
   const sales = S.sales.filter(x => x.day === today);
