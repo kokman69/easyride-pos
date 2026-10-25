@@ -100,7 +100,7 @@
      labels like "Surname", "Given name(s)", dates DD.MM.YYYY, the 11-digit personal number */
   function frontFromText(text){
     const lines = String(text || '').split(/\n/).map(l => l.replace(/[|_~«»"'`]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
-    const latinWord = l => (l.match(/\b[A-Z][A-Z-]{1,}(?:\s+[A-Z][A-Z-]{1,})*\b/) || [''])[0];
+    const latinWord = l => (l.match(/(?<![A-Za-zÀ-ÖØ-Þà-ÿ])[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ-]{1,}(?:\s+[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ-]{1,})*(?![A-Za-zÀ-ÖØ-Þà-ÿ])/) || [''])[0];
     const after = (re, stop) => {
       for (let i = 0; i < lines.length; i++) {
         const m = lines[i].match(re); if (!m) continue;
@@ -112,8 +112,15 @@
       return '';
     };
     const STOP = /^(SURNAME|NAME|NAMES|GIVEN|SEX|DATE|BIRTH|PERSONAL|NO|CARD|GEO|GEORGIA|NATIONALITY|PLACE|EXPIRY|ISSUE|AUTHORITY|PASSPORT|ID|M|F)$/;
-    const surname = after(/\bsur\s*name\b/i, STOP);
-    const given = after(/\b(given\s*names?|first\s*names?|(?<!sur\s?)name)\b/i, STOP);
+    // OCR often reads "Surname" as "Sumame" / "Surnarne": accept those too
+    const SUR = /\b(?:sur\s*name|su[rn]{1,2}\s*[nm]+a?[rn]*[mn]?e|last\s*name|family\s*name)\b/i;
+    let surname = after(SUR, STOP);
+    const given = after(/\b(given\s*names?|first\s*names?|(?<!s\w{1,4})name)\b/i, STOP);
+    // still no surname: on Georgian ID cards it is printed just above the "Name" label
+    if (!surname && given) {
+      const gi = lines.findIndex(l => /\bname\b/i.test(l) && !SUR.test(l));
+      for (let j = gi - 1; j >= Math.max(0, gi - 3) && !surname; j--) { const w = latinWord(lines[j]); if (w && !STOP.test(w) && w !== given && w.length > 1) surname = w; }
+    }
     const dates = [...String(text || '').matchAll(/\b([0-3]\d)[.\/ -]([01]\d)[.\/ -]((?:19|20)\d\d)\b/g)]
       .map(m => `${m[3]}-${m[2]}-${m[1]}`).filter(d => !isNaN(new Date(d))).sort();
     const today = new Date().toISOString().slice(0, 10), adult = String(new Date().getFullYear() - 14);
@@ -121,7 +128,7 @@
     const expiry = [...dates].reverse().find(d => d > today) || '';
     const personal = personalFromText(text);
     if (!surname && !given && !personal) return null;
-    return { partial: !(surname || given), surname, given, personal, birth, expiry };
+    return { partial: !(surname && given), surname, given, personal, birth, expiry };
   }
 
 
