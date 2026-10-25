@@ -1066,6 +1066,9 @@ function lateCalc(r){
   const ms = Date.now() - new Date(r.ends_at) - 30 * 6e4, hours = ms > 0 ? Math.ceil(ms / 36e5) : 0, daily = rentDaily(r);   // first 30 min are free
   return { hours, daily, fee:r2(hours * daily * 0.1) };
 }
+/* extension = the old rental closes and a new one continues with the same vehicle, customer, signature and deposit (the deposit is not returned and taken again) */
+const extOf = r => r?.contract?.raw?.ext_of || '';
+const movedDeps = () => new Set(S.rentals.filter(x => x.status !== 'cancelled' && extOf(x)).map(extOf));
 const rentSum = r => r2((+r.price || 0) + (+r.late_fee || 0));
 function dueLabel(r){
   if (!r.ends_at) return '';
@@ -1094,7 +1097,7 @@ function renderRent(){
   const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(locData(r.unit_label))}` : ''} · ${esc(rateLabel(r.rate))}
       <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit, r.deposit_currency || 'GEL')}${r.deposit_payment ? ' · ' + esc(tPay(r.deposit_payment)) : ''}` : ''}</div>${cBtn(r)}${eBtn()}</div>
-      <div style="text-align:right">${dueBadge(r)}<div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
+      <div style="text-align:right">${dueBadge(r)}<div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button class="btn small" data-act="ext" title="${esc(t('ext_title'))}">⏱ +</button><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
     : `<div class="empty small">${esc(t('nothing_rented'))}</div>`;
   const done = S.rentals.filter(r => r.status === 'returned').slice(0, 50);
   $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(locData(r.unit_label))}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(rentSum(r))}${+r.late_fee ? `<div class="small due late">+${money(r.late_fee)}</div>` : ''}</td><td style="white-space:nowrap">${cBtn(r)}${eBtn()}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
@@ -1473,9 +1476,69 @@ $('r-active').onclick = async e => {
   const cb = e.target.closest('[data-act="contract"]'); if (cb) { viewContract(S.rentals.find(r => r.id === cb.closest('[data-id]').dataset.id)); return; }
   const fa = e.target.closest('[data-act="sendall"]'); if (fa) { sendRentalFiles(S.rentals.find(r => r.id === fa.closest('[data-id]').dataset.id)); return; }
   const sb2 = e.target.closest('[data-act="cshare"]'); if (sb2) { viewContract(S.rentals.find(r => r.id === sb2.closest('[data-id]').dataset.id), true); return; }
+  const xb = e.target.closest('[data-act="ext"]'); if (xb) { const r = S.rentals.find(x => x.id === xb.closest('[data-id]').dataset.id); if (r) openExtend(r); return; }
   const b = e.target.closest('[data-act="ret"]'); if (!b) return;
   const r = S.rentals.find(x => x.id === b.closest('[data-id]').dataset.id); if (r) openReturn(r);
 };
+/* add time to a rental that is out: pick the extra period, take the payment (and a late fee if it came back late), the deposit stays on hold */
+async function openExtend(r){
+  let late = lateCalc(r);
+  try { const v = await q(sb.rpc('rental_late', { p_id:r.id })); if (v) late = v; } catch(e){ console.error(e); }
+  const fee = +late.fee || 0, x = (S.settings.tariffs || []).find(y => y.type === r.type), rates = x?.rates || [];
+  const now = new Date(), base = r.ends_at && new Date(r.ends_at) > now ? new Date(r.ends_at) : now;
+  const sellers = S.settings.sellers || [], me = S.user?.name || '';
+  const kv = (k, v) => v ? `<div class="kv"><span class="muted">${esc(t(k))}</span><b class="num">${v}</b></div>` : '';
+  openOv(`<div class="row between"><h2>⏱ ${esc(t('ext_title'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div><b>${esc(locData(r.unit_label) || tType(r.type))}</b> · ${esc(rateLabel(r.rate))}<div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')}</div></div>
+    <div class="stack" style="gap:4px">${kv('started', fmtTs(r.created_at))}${kv('return_by', r.ends_at ? fmtTs(r.ends_at) : '')}${kv('rent_fee', money(r.price))}</div>
+    ${fee ? `<div class="latebox stack">
+        <div class="row between"><b>${esc(t('late_by'))} ${late.hours} ${esc(t('hours_short'))}</b><b class="num">+${money(fee)}</b></div>
+        <label class="f"><span>${esc(t('payment'))}</span><select id="xt-lpay">${PAYS.map(k => `<option value="${k}" ${k === (r.payment || 'cash') ? 'selected' : ''}>${esc(tPay(k))}</option>`).join('')}</select></label>
+        <button type="button" class="btn big paidbtn" id="xt-lpaid" aria-pressed="false">${esc(t('mark_paid'))} · ${money(fee)}</button></div>` : ''}
+    <div class="formgrid two">
+      <label class="f">${esc(t('ext_add'))}<select id="xt-rate">${rates.map((y, i) => `<option value="${i}">${esc(rateLabel(y))} — ${money(y.p)}</option>`).join('')}<option value="x">${esc(t('other_duration'))}</option></select></label>
+      <label class="f">${esc(t('ext_new_end'))}<input id="xt-end" type="datetime-local" required></label>
+      <label class="f">${esc(t('rent_fee'))}<input id="xt-price" type="number" min="0" step="0.01" inputmode="decimal" class="num"></label>
+      <label class="f">${esc(t('disc_field'))}<input id="xt-disc" inputmode="decimal" placeholder="0 / 10%"></label>
+      <label class="f">${esc(t('payment'))}<select id="xt-pay">${PAYS.map(k => `<option value="${k}" ${k === 'cash' ? 'selected' : ''}>${esc(tPay(k))}</option>`).join('')}</select></label>
+      <label class="f">${esc(t('seller'))}<select id="xt-seller">${[...new Set([me, ...sellers].filter(Boolean))].map(k => `<option ${k === me ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></label></div>
+    <div class="row between" style="font-size:18px"><span>${esc(t('to_pay'))}</span><b class="num" id="xt-final"></b></div>
+    ${+r.deposit ? `<div class="okbox">${esc(t('ext_dep_stays').replace('{d}', money(r.deposit, r.deposit_currency || 'GEL')))}</div>` : ''}
+    <button type="button" class="btn primary big" id="xt-save" ${fee ? 'disabled' : ''}>${esc(t('ext_save'))}</button>
+    ${fee ? `<div class="small muted" id="xt-hint">${esc(t('paid_first'))}</div>` : ''}`);
+  const rateOf = () => rates[+$('xt-rate').value] || null;
+  const fin = () => { const p = Math.max(0, r2($('xt-price').value)), d = discOf($('xt-disc').value, p); return { list:p, disc:d, price:r2(p - d) }; };
+  const paint = () => { $('xt-final').textContent = money(fin().price); };
+  const pick = () => { const y = rateOf(); if (y) { $('xt-price').value = y.p; if (UNIT_MS[y.u]) $('xt-end').value = toLocalInput(new Date(base.getTime() + y.n * UNIT_MS[y.u])); }
+    else if (!$('xt-end').value) $('xt-end').value = toLocalInput(new Date(base.getTime() + 36e5)); paint(); };
+  { const d = rates.findIndex(y => y.u === 'd' && +y.n === 1); if (d >= 0) $('xt-rate').value = String(d); }
+  $('xt-rate').onchange = pick; $('xt-price').oninput = $('xt-disc').oninput = paint; pick();
+  if ($('xt-lpaid')) $('xt-lpaid').onclick = () => { const on = $('xt-lpaid').getAttribute('aria-pressed') !== 'true'; $('xt-lpaid').setAttribute('aria-pressed', on); $('xt-save').disabled = !on; $('xt-hint').hidden = on; };
+  $('xt-save').onclick = async () => {
+    const end = new Date($('xt-end').value); if (isNaN(end) || end <= now) { toast(t('ext_bad_end')); return; }
+    const btn = $('xt-save'); btn.disabled = true;
+    const y = rateOf(), rate = y ? { n:y.n, u:y.u, p:y.p } : { other:true }, f = fin(), pay = $('xt-pay').value, seller = $('xt-seller').value, start = base;
+    const raw0 = r.contract?.raw || {};
+    const raw = { ...raw0, rate, start:start.toISOString(), end:end.toISOString(), price:f.price, pay, seller, ext_of:r.id, base_id:raw0.base_id || r.id };
+    delete raw.list; delete raw.disc; if (f.disc) { raw.list = f.list; raw.disc = f.disc; }
+    const row = { type:r.type, rate, price:f.price, deposit:+r.deposit || 0, deposit_currency:r.deposit_currency || 'GEL', deposit_payment:r.deposit_payment || '',
+      unit_id:r.unit_id || null, product_id:r.product_id || null, unit_label:r.unit_label || '', customer_id:r.customer_id || null, customer_name:r.customer_name || '', phone:r.phone || '',
+      seller, payment:pay, created_by:me, ends_at:end.toISOString(), signature:r.signature || null, video:r.video || null,
+      contract:{ ...(r.contract || { v:1 }), raw } };
+    let returned = false;
+    try {
+      await q(sb.rpc('return_rental', { p_id:r.id, p_fee:fee, p_payment:$('xt-lpay')?.value || '' })); returned = true;
+      const saved = (await q(sb.from('rentals').insert([row]).select()))[0];
+      closeOv(); toast(t('ext_saved')); await reload('rentals');
+      const nr = S.rentals.find(z => z.id === saved.id) || saved, data = rentalReportData(nr);
+      if (fee) data.late = { hours:+late.hours || 0, fee:repMoney('GEL')(fee), total:repMoney('GEL')(r2(f.price + fee)) };
+      showReport('rental', data, { rental:nr });
+    } catch(err){
+      if (/fee_changed/.test(err?.message || '')) { toast(t('fee_changed')); closeOv(); openExtend(r); return; }
+      fail(err); if (returned) { closeOv(); await reload('rentals'); toast(t('ext_half')); } else btn.disabled = false;
+    }
+  };
+}
 /* return: late fee shown, "paid" must be pressed before the rental can be finished */
 async function openReturn(r){
   let late = lateCalc(r);
@@ -1580,10 +1643,10 @@ function saleReportData({ lines, total, extra, payment, seller, cust, note, date
 function rentalReportData(r){
   if (!r) return null;
   const c = S.customers.find(x => x.id === r.customer_id) || {}, raw = r.contract?.raw || {};
-  return { item: lg => [tL('t_' + r.type, lg), r.unit_label].filter(Boolean).join(' · '), period: lg => rateLabel(r.rate, lg),
+  return { ext: !!extOf(r), item: lg => [tL('t_' + r.type, lg), r.unit_label].filter(Boolean).join(' · '), period: lg => rateLabel(r.rate, lg),
     fee: repMoney('GEL')(r.price), disc: +raw.disc ? repMoney('GEL')(raw.disc) : '', payLabel: lg => r.payment ? tL('pay_' + r.payment, lg) : '', deposit: +r.deposit ? lg => repMoney(r.deposit_currency || 'GEL')(r.deposit) + (r.deposit_payment ? ' · ' + tL('pay_' + r.deposit_payment, lg) : '') : '',
     cust: r.customer_name || c.name || '', tel: r.phone || c.phone || '', nat: natCode(c.nationality || raw.nat),
-    docPhoto: !!c.photo, signed: !!r.contract, video: !!r.video, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
+    docPhoto: !!c.photo, signed: !!r.contract, video: !!r.video, late: +r.late_fee ? { hours:+r.late_hours || 0, fee:repMoney('GEL')(r.late_fee), total:repMoney('GEL')(rentSum(r)) } : null, today: dayKey(new Date(r.created_at)) === dayKey(new Date()), date: fmtD(new Date(r.created_at)), start: fmtShort(extOf(r) && raw.start ? raw.start : r.created_at), end: r.ends_at ? fmtShort(r.ends_at) : '', seller: r.seller || '' };
 }
 function repLangs(){ try { const v = JSON.parse(ls.get('er-rep-langs') || 'null'); if (Array.isArray(v) && v.length) return v; } catch(e){} return ['en', 'ja']; }
 function showReport(kind, data, opts = {}){
@@ -2121,9 +2184,10 @@ function cashFlow(day){
   const rentFees = rentsToday.filter(r => isCash(r.payment)).reduce((a, r) => a + (+r.price || 0), 0);
   const late = S.rentals.filter(r => +r.late_fee && isCash(r.late_payment) && r.returned_at && dayKey(new Date(r.returned_at)) === day).reduce((a, r) => a + (+r.late_fee || 0), 0);
   const depCash = r => +r.deposit && isCash(r.deposit_payment) && (r.deposit_currency || 'GEL') === 'GEL';
-  const depIn = S.rentals.filter(r => r.day === day && depCash(r)).reduce((a, r) => a + (+r.deposit || 0), 0);
+  const moved = movedDeps();
+  const depIn = S.rentals.filter(r => r.day === day && depCash(r) && !extOf(r)).reduce((a, r) => a + (+r.deposit || 0), 0);
   const backAt = r => r.returned_at || r.cancelled_at;
-  const depOut = S.rentals.filter(r => depCash(r) && r.status !== 'active' && backAt(r) && dayKey(new Date(backAt(r))) === day).reduce((a, r) => a + (+r.deposit || 0), 0);
+  const depOut = S.rentals.filter(r => depCash(r) && !moved.has(r.id) && r.status !== 'active' && backAt(r) && dayKey(new Date(backAt(r))) === day).reduce((a, r) => a + (+r.deposit || 0), 0);
   const dayCash = S.fin.expenses.filter(x => x.day === day && gel(x) && isCash(x.payment));
   const exp = dayCash.filter(x => x.category !== 'collect').reduce((a, x) => a + (+x.amount || 0), 0);
   const out = dayCash.filter(x => x.category === 'collect').reduce((a, x) => a + (+x.amount || 0), 0);
@@ -2288,7 +2352,7 @@ const repOf = k => S.dayRep.list.find(r => r.day === k);
 function dayFigures(day){
   const items = [], add = (pay, amount, name) => { if (+amount) items.push({ pay: pay || 'cash', amount:r2(amount), name }); };
   S.sales.filter(s => s.day === day && gel(s)).forEach(s => add(s.payment, s.total, (s.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join(', ')));
-  S.rentals.filter(r => r.day === day && r.status !== 'cancelled').forEach(r => add(r.payment, r.price, lg => `${tL('tab_rent', lg)} · ${locData(r.unit_label, lg) || tL('t_' + r.type, lg)}`));
+  S.rentals.filter(r => r.day === day && r.status !== 'cancelled').forEach(r => add(r.payment, r.price, lg => `${tL(extOf(r) ? 'rent_ext' : 'tab_rent', lg)} · ${locData(r.unit_label, lg) || tL('t_' + r.type, lg)}`));
   S.rentals.filter(r => +r.late_fee && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.late_payment, r.late_fee, lg => `${tL('late_fee', lg)} · ${locData(r.unit_label || '', lg)}`));
   S.rentals.filter(r => +r.deposit_kept && (r.deposit_currency || 'GEL') === 'GEL' && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.deposit_payment || 'cash', r.deposit_kept, lg => `${tL('dep_kept', lg)} · ${locData(r.unit_label || '', lg)}`));
   const sum = p => r2(items.filter(i => p(i.pay)).reduce((a, i) => a + i.amount, 0));
@@ -2296,11 +2360,12 @@ function dayFigures(day){
   // deposits per currency: held at the start, received, returned, held at the end
   const back = r => r.returned_at || r.cancelled_at, bd = r => back(r) ? dayKey(new Date(back(r))) : null;
   const dep = { start:{}, in:{}, out:{}, end:{} }, cur = r => r.deposit_currency || 'GEL';
+  const moved = movedDeps();
   S.rentals.filter(r => +r.deposit).forEach(r => {
     const c = cur(r), v = +r.deposit, open = r.status === 'active', b = bd(r);
     if (r.day < day && (open || (b && b >= day))) dep.start[c] = (dep.start[c] || 0) + v;
-    if (r.day === day) dep.in[c] = (dep.in[c] || 0) + v;
-    if (!open && b === day) dep.out[c] = (dep.out[c] || 0) + v - (+r.deposit_kept || 0);
+    if (r.day === day && !extOf(r)) dep.in[c] = (dep.in[c] || 0) + v;
+    if (!open && b === day && !moved.has(r.id)) dep.out[c] = (dep.out[c] || 0) + v - (+r.deposit_kept || 0);
     if (r.day <= day && (open || (b && b > day))) dep.end[c] = (dep.end[c] || 0) + v;
   });
   const collect = r2((S.fin.expenses || []).filter(x => x.day === day && gel(x) && isCash(x.payment) && x.category === 'collect').reduce((a, x) => a + (+x.amount || 0), 0));
@@ -2423,7 +2488,7 @@ function renderCash(){
   $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0], out = r.status === 'active';
     return `<div class="hcard ${out ? 'is-out' : 'is-back'}" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="rstat ${out ? 'out' : 'back'}">${esc(t(out ? 'h_out' : 'h_back'))}</span></div>
       <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}${r.phone ? ' · ' + esc(r.phone) : ''}</small><small>${fmtTs(r.created_at)}${out ? '' : ` → ${fmtTs(r.returned_at)}`}</small>${out ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
-      <div class="hcard-a">${out ? `<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button>` : ''}${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${edit}</div></div>`; }).join('')
+      <div class="hcard-a">${out ? `<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button><button type="button" class="btn small" data-act="ext" title="${esc(t('ext_title'))}">⏱ +</button>` : ''}${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${edit}</div></div>`; }).join('')
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
   const sales = S.sales.filter(x => x.day === today);
   $('h-sold-sum').textContent = sales.length ? moneyMulti(sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {})) : '';
@@ -2441,6 +2506,7 @@ const homeClick = e => {
     if (a === 'srep') showReport('sale', saleRepFromRow(x)); else if (a === 'sedit' && isAdmin()) askPin(pin => editSale(x, pin)); return; }
   const r = S.rentals.find(y => y.id === row.dataset.id); if (!r) return;
   if (a === 'ret') openReturn(r);
+  else if (a === 'ext') openExtend(r);
   else if (a === 'contract') viewContract(r);
   else if (a === 'sendall') sendRentalFiles(r);
   else if (a === 'rrep') showReport('rental', rentalReportData(r), { rental:r });
