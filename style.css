@@ -985,3 +985,6 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 .sdst.out{background:var(--danger,#e5484d)}.sdst.back{background:var(--green,#2f9e44)}
 #sd-log{max-height:420px;overflow:auto}
 #ov .panel.wide .panel{max-width:none}
+/* v55: add-time button */
+.xtbtn{background:var(--pri,#FFD200);color:var(--pri-ink,#111);border-color:transparent;font-weight:700}
+.xtdue{cursor:pointer;display:inline-block}

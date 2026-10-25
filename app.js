@@ -1097,7 +1097,7 @@ function renderRent(){
   const eBtn = () => `<button class="btn ghost small" data-act="rrep">${esc(t('report_btn'))}</button>` + (isAdmin() ? `<button class="btn ghost small" data-act="redit">${esc(t('edit'))}</button>` : '');
   $('r-active').innerHTML = act.length ? act.map(r => `<div class="tariff" data-id="${r.id}"><div style="min-width:0"><b>${esc(tType(r.type))}</b>${r.unit_label ? ` · ${esc(locData(r.unit_label))}` : ''} · ${esc(rateLabel(r.rate))}
       <div class="small muted">${esc(r.customer_name || '')} ${esc(r.phone || '')} · ${esc(t('started'))} ${fmtTs(r.created_at)}${dueLabel(r)}${+r.deposit ? ` · ${esc(t('deposit'))} ${money(r.deposit, r.deposit_currency || 'GEL')}${r.deposit_payment ? ' · ' + esc(tPay(r.deposit_payment)) : ''}` : ''}</div>${cBtn(r)}${eBtn()}</div>
-      <div style="text-align:right">${dueBadge(r)}<div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button class="btn small" data-act="ext" title="${esc(t('ext_title'))}">⏱ +</button><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
+      <div style="text-align:right">${dueBadge(r)}<div class="num">${money(r.price)}</div>${lateTag(r)}<button class="btn ghost small" data-act="sendall" title="${esc(t('send_files_title'))}">📎</button><button class="btn small xtbtn" data-act="ext" title="${esc(t('ext_title'))}">⏱ ${esc(t('ext_short'))}</button><button class="btn small" data-act="ret">${esc(t('returned_btn'))}</button></div></div>`).join('')
     : `<div class="empty small">${esc(t('nothing_rented'))}</div>`;
   const done = S.rentals.filter(r => r.status === 'returned').slice(0, 50);
   $('r-history').innerHTML = `<div class="pad"><h3>${esc(t('rent_recent'))}</h3></div>` + (done.length ? `<table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_amount'))}</th><th></th></tr></thead><tbody>${done.map(r => `<tr data-id="${r.id}"><td class="num">${fmtTs(r.created_at)}</td><td>${esc(tType(r.type))}${r.unit_label ? ` · ${esc(locData(r.unit_label))}` : ''} · ${esc(rateLabel(r.rate))}</td><td>${esc(r.customer_name || '—')}</td><td>${esc(r.seller || '')}</td><td class="r num">${money(rentSum(r))}${+r.late_fee ? `<div class="small due late">+${money(r.late_fee)}</div>` : ''}</td><td style="white-space:nowrap">${cBtn(r)}${eBtn()}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('rent_none_done'))}</div>`);
@@ -2084,7 +2084,8 @@ async function openStaff(email){
       <label class="f">${esc(t('role'))}<select id="sx-role" ${me ? 'disabled' : ''}>${['consultant', 'moderator', 'admin'].map(r => `<option value="${r}" ${x.role === r ? 'selected' : ''}>${esc(t(roleKey(r)))}</option>`).join('')}</select></label>
       <label class="f">${esc(t('pw_new'))}<input id="sx-pw" type="password" autocomplete="new-password" placeholder="${esc(t('pw_keep'))}"></label></div>
       <label class="row small"><input type="checkbox" id="sx-active" ${x.active ? 'checked' : ''} ${me ? 'disabled' : ''}> ${esc(t('account_active'))}</label>
-      <button class="btn primary" id="sx-save">${esc(t('save'))}</button></form>` : ''}
+      <button class="btn primary" id="sx-save">${esc(t('save'))}</button>
+      ${me ? '' : `<button type="button" class="btn ghost danger" id="sx-del">🗑 ${esc(t('staff_delete'))}</button><div class="small muted">${esc(t('staff_delete_hint'))}</div>`}</form>` : ''}
     ${!x || x.name ? `<div class="stats small3">${[['sale_today', st(sl, today, r => +r.total || 0)], ['p_month30', st(sl, a, r => +r.total || 0)], ['rent_today', st(rl, today, rentSum)], ['rent_month30', st(rl, a, rentSum)]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('')}</div>` : ''}
     <h3 style="margin:6px 0 0">${esc(t('activity'))}</h3><div id="sx-log" class="actlog"><div class="small muted">${esc(t('loading'))}</div></div>`, 'wide');
   if (x && $('sx')) $('sx').onsubmit = async e => {
@@ -2096,6 +2097,11 @@ async function openStaff(email){
     try { await q(sb.rpc('admin_update_staff', { p_email:x.email, p_patch:patch })); toast(t('saved')); if (me) S.user.name = patch.name || S.user.name; closeOv(); await reload('staff', 'settings', 'sales', 'rentals'); renderAll(); }
     catch(err){ fail(err); btn.disabled = false; }
   };
+  if (x && $('sx-del')) $('sx-del').onclick = () => arm($('sx-del'), async () => {
+    $('sx-del').disabled = true;
+    try { await q(sb.rpc('admin_delete_staff', { p_email:x.email })); toast(t('staff_deleted')); closeOv(); await reload('staff', 'settings'); renderAll(); }
+    catch(err){ if (/last_admin/.test(err?.message || '')) toast(t('staff_last_admin')); else fail(err); if ($('sx-del')) $('sx-del').disabled = false; }
+  });
   let rows = [];
   try { let qq = sb.from('audit_log').select('*'); if (x) qq = qq.eq('email', x.email); rows = await q(qq.order('at', { ascending:false }).limit(400)) || []; }
   catch(e){ console.error(e); if ($('sx-log')) $('sx-log').innerHTML = `<div class="small muted">${esc(t('save_failed'))}</div>`; return; }
@@ -2152,6 +2158,7 @@ function logLine(e, saleTx){
     case 'fleet:insert': case 'fleet:update': case 'fleet:delete': return L('fleet', 'log_fleet', `${esc(fleetLabel(row))}${diff ? ' — ' + diff : ''}`);
     case 'settings:update': return ch.length ? L('set', 'log_settings', ch.map(k => esc(LOGF[k] ? t(LOGF[k]) : k)).join(', ')) : null;
     case 'staff:staff_create': return L('staff', 'log_staff_create', `${esc(d.name || '')} · ${esc(logVal('role', d.role))}`);
+    case 'staff:staff_delete': return L('staff', 'log_staff_delete', `${esc(d.who || d.name || '')}`);
     case 'staff:staff_update': return L('staff', 'log_staff_edit', `${esc(d.who || '')} — ${Object.keys(d).filter(k => k !== 'who' && d[k] != null).map(k => `${esc(LOGF[k] ? t(LOGF[k]) : k)}: ${esc(k === 'password' ? '***' : logVal(k, d[k]))}`).join(' · ')}`);
   }
   return { e, icon:'•', text:esc(e.tbl + ' ' + e.action) };
@@ -2479,16 +2486,17 @@ function renderCash(){
   const act = S.rentals.filter(r => r.status === 'active').sort((a, b) => String(a.ends_at || '9').localeCompare(String(b.ends_at || '9')));
   // returned today (whenever it was rented) stays on the board in green until the day ends or the same vehicle goes out again
   const unitKey = r => r.product_id || r.unit_id || r.unit_label || r.id;
-  const backToday = S.rentals.filter(r => r.status === 'returned' && r.returned_at && dayKey(new Date(r.returned_at)) === today
-    && !S.rentals.some(o => o !== r && unitKey(o) === unitKey(r) && o.status !== 'cancelled' && String(o.created_at) > String(r.returned_at)))
+  const moved = movedDeps();   // a rental that was extended continues as a new one: the old card is not shown
+  const backToday = S.rentals.filter(r => r.status === 'returned' && r.returned_at && dayKey(new Date(r.returned_at)) === today && !moved.has(r.id)
+    && !S.rentals.some(o => o !== r && unitKey(o) === unitKey(r) && o.status !== 'cancelled' && new Date(o.created_at) >= new Date(r.returned_at)))
     .sort((a, b) => String(b.returned_at).localeCompare(String(a.returned_at)));
   const rents = [...act, ...backToday];
   const todays = S.rentals.filter(r => r.day === today && r.status !== 'cancelled');
   $('h-rent-sum').textContent = todays.length ? money(todays.reduce((a, r) => a + rentSum(r), 0)) : '';
   $('h-rented').innerHTML = rents.length ? rents.map(r => { const p = S.products.find(x => x.id === r.product_id), ph = p?.photos?.[0], out = r.status === 'active';
     return `<div class="hcard ${out ? 'is-out' : 'is-back'}" data-id="${r.id}"><div class="hcard-ph">${ph ? `<img src="${esc(photoUrl(ph))}" alt="" loading="lazy">` : `<span>${esc(tType(r.type))}</span>`}<span class="rstat ${out ? 'out' : 'back'}">${esc(t(out ? 'h_out' : 'h_back'))}</span></div>
-      <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}${r.phone ? ' · ' + esc(r.phone) : ''}</small><small>${fmtTs(r.created_at)}${out ? '' : ` → ${fmtTs(r.returned_at)}`}</small>${out ? dueBadge(r) : ''}<span class="num">${money(rentSum(r))}</span></div>
-      <div class="hcard-a">${out ? `<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button><button type="button" class="btn small" data-act="ext" title="${esc(t('ext_title'))}">⏱ +</button>` : ''}${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${edit}</div></div>`; }).join('')
+      <div class="hcard-b"><b>${esc(locData(r.unit_label) || tType(r.type))}</b><small>${esc(r.customer_name || '')}${r.phone ? ' · ' + esc(r.phone) : ''}</small><small>${fmtTs(r.created_at)}${out ? '' : ` → ${fmtTs(r.returned_at)}`}</small>${out ? `<span class="xtdue" data-act="ext" title="${esc(t('ext_title'))}">${dueBadge(r)}</span>` : ''}<span class="num">${money(rentSum(r))}</span></div>
+      <div class="hcard-a">${out ? `<button type="button" class="btn small" data-act="ret">${esc(t('returned_btn'))}</button><button type="button" class="btn small xtbtn" data-act="ext" title="${esc(t('ext_title'))}">⏱ ${esc(t('ext_short'))}</button>` : ''}${r.contract ? `<button type="button" class="btn ghost small" data-act="contract">📄</button>` : ''}<button type="button" class="btn ghost small" data-act="sendall">📎</button><button type="button" class="btn ghost small" data-act="rrep">📤</button>${edit}</div></div>`; }).join('')
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
   const sales = S.sales.filter(x => x.day === today);
   $('h-sold-sum').textContent = sales.length ? moneyMulti(sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {})) : '';
