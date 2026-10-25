@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ka">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Easyride — ტელეფონის ხედი</title>
+<style>
+  html,body{margin:0;height:100%;background:#4a4a4a;font:14px system-ui,sans-serif;color:#eee}
+  body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px 0;box-sizing:border-box}
+  .bar{display:flex;gap:8px;align-items:center}
+  .bar button{background:#FFD200;color:#111;border:0;border-radius:10px;padding:7px 12px;font-weight:700;cursor:pointer}
+  .bar select{border-radius:10px;padding:6px 8px;border:0}
+  iframe{border:0;border-radius:22px;background:#fff;box-shadow:0 0 0 9px #111}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <select id="dev">
+      <option value="390x844">iPhone 14 / 15</option>
+      <option value="375x667">iPhone SE</option>
+      <option value="412x915">Android (Samsung)</option>
+      <option value="360x780">Android პატარა</option>
+    </select>
+    <button id="reload" type="button">↻ განახლება</button>
+  </div>
+  <iframe id="ph" title="Easyride" src="./?phone=1"></iframe>
+<script>
+  const f = document.getElementById('ph'), d = document.getElementById('dev');
+  const size = () => { const [w, h] = d.value.split('x').map(Number); f.style.width = w + 'px'; f.style.height = Math.min(h, innerHeight - 70) + 'px'; };
+  d.onchange = size; addEventListener('resize', size); size();
+  document.getElementById('reload').onclick = () => { f.src = './?phone=' + Date.now(); };
+</script>
+</body>
+</html>
