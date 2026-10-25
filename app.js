@@ -754,7 +754,7 @@ function renderSimplePick(){
         <div class="etb"><span class="num etc">${esc(p.code || '')}</span><span class="etn">${esc(pName(p))}</span><span class="num etp">${+p.price ? money(p.price) : '—'} · ${left(p)} ${esc(t('pcs'))}</span></div></div>`; }).join('');
     if (kind === 'easy') return;
   }
-  const avail = S.products.filter(p => !isEasy(p) && left(p) > 0);
+  const avail = S.products.filter(p => !isEasy(p) && forSale(p) && left(p) > 0);
   const types = VEH.filter(k => avail.some(p => p.type === k));
   if (!types.includes(S.spType)) S.spType = types[0] || '';
   $('sp-type').innerHTML = types.map(k => `<option value="${k}" ${k === S.spType ? 'selected' : ''}>${esc(tType(k))} (${avail.filter(p => p.type === k).length})</option>`).join('') || `<option value="">—</option>`;
@@ -776,7 +776,9 @@ $('sp-code').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if 
 $('sp-hit').onclick = e => { if (e.target.closest('[data-id]')) addByCode(); };
 /* sale catalogue: "all" (vehicles + items), "vehicles" or "items" */
 const saleKind = () => ['all', 'veh', 'easy'].includes(S.sKind) ? S.sKind : 'all';
-const inSaleKind = (p, k = saleKind()) => k === 'all' || (k === 'easy' ? isEasy(p) : !isEasy(p));
+/* a vehicle can be for sale, for rent or both (set when it is added / edited) */
+const purposeOf = p => p?.purpose || 'both', forSale = p => purposeOf(p) !== 'rent', forRent = p => purposeOf(p) !== 'sale';
+const inSaleKind = (p, k = saleKind()) => forSale(p) && (k === 'all' || (k === 'easy' ? isEasy(p) : !isEasy(p)));
 const leftOf = p => (+p.qty || 0) - S.cart.filter(l => l.productId === p.id).reduce((x, l) => x + l.qty, 0);
 const erowHtml = p => { const left = leftOf(p);
   const ph = p.photos?.[0];
@@ -991,6 +993,7 @@ function openProduct(p, preset){
         <label class="f">${esc(t('f_mileage'))}, ${esc(t('km'))}<input id="pf-mileage" value="${esc(mileOf(v))}" inputmode="numeric" placeholder="12500"></label>
         ${fld('engine', 'f_engine', 'placeholder="49 cc / 1200 W"')}${fld('price', 'f_price', 'type="number" min="0" step="1" inputmode="decimal"')}
         ${p ? fld('qty', 'f_qty', 'type="number" min="0" step="1" inputmode="numeric"') : ''}
+        <label class="f" style="grid-column:1/-1">${esc(t('f_purpose'))}<select id="pf-purpose">${['both','sale','rent'].map(k => `<option value="${k}" ${purposeOf(v) === k ? 'selected' : ''}>${esc(t('purpose_' + k))}</option>`).join('')}</select></label>
         ${fld('note', 'note', '', true)}</div>`
     : `<div><div class="small muted" style="font-weight:600;margin-bottom:6px">${esc(t('photos'))}</div><div class="phgrid" id="pf-ph"></div></div>
       <div class="formgrid">
@@ -1026,7 +1029,7 @@ function openProduct(p, preset){
       const plate = g('plate').toUpperCase().replace(/[\s-]/g, '');
       if (plate && S.products.some(x => x.id !== p?.id && normQ(plateOf(x)) === normQ(plate))) { err.textContent = t('plate_exists'); err.hidden = false; $('pf-plate').focus(); return; }
       data = { name:g('name'), type:g('type'), code:vin, plate, color:g('color'), year:g('year'), engine:g('engine'), note:g('note'),
-        price:Math.max(0, +g('price') || 0), qty: p ? Math.max(0, Math.round(+g('qty') || 0)) : 1 };
+        price:Math.max(0, +g('price') || 0), qty: p ? Math.max(0, Math.round(+g('qty') || 0)) : 1, purpose:g('purpose') || 'both' };
       const sp = { ...(p?.specs || {}) }, mi = g('mileage').replace(/\s+/g, ' ');
       if (mi) sp[MILE_K] = mi; else delete sp[MILE_K];
       data.specs = sp;
@@ -1124,7 +1127,7 @@ function unitOptions(type){
   const needNo = type === 'moped', isNo = v => /^[A-Z]{1,3}\d{3,6}$/.test(String(v || '').toUpperCase().replace(/[\s-]/g, '')), qq = ($('r-unit-q')?.value || '').trim().toLowerCase().replace(/[\s-]/g, '');
   const hit = l => !qq || l.toLowerCase().replace(/[\s-]/g, '').includes(qq);
   const fleet = S.fleet.filter(f => f.type === type && (!needNo || isNo(f.number))).map(f => ({ key:'f:' + f.id, label:fleetLabel(f) })).filter(u => hit(u.label)).sort(byLabel);
-  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && (!needNo || isNo(plateOf(p)) || isNo(p.code))).map(p => ({ key:'p:' + p.id, label:stockLabel(p), pl:plateOf(p) })).filter(u => hit(u.label)).sort((a, b) => (a.pl ? 0 : 1) - (b.pl ? 0 : 1) || byLabel(a, b));
+  const stock = S.products.filter(p => p.type === type && +p.qty > 0 && forRent(p) && (purposeOf(p) === 'rent' || !needNo || isNo(plateOf(p)) || isNo(p.code))).map(p => ({ key:'p:' + p.id, label:stockLabel(p), pl:plateOf(p) })).filter(u => hit(u.label)).sort((a, b) => (a.pl ? 0 : 1) - (b.pl ? 0 : 1) || byLabel(a, b));
   return { busy, groups:[['grp_fleet', fleet], ['grp_stock', stock]].filter(([, l]) => l.length) };
 }
 function fillUnits(){

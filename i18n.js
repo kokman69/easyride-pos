@@ -1,6 +1,10 @@
 /* Translations: [ქართული, English, Русский, 日本語] */
 window.I18N = {
   "sd_exps": ["ხარჯები და გატანები","Expenses and take-outs","Расходы и изъятия","経費・出金"],
+  "f_purpose": ["დანიშნულება","Purpose","Назначение","用途"],
+  "purpose_both": ["გაყიდვა და გაქირავება","For sale and rent","Продажа и аренда","販売・レンタル"],
+  "purpose_sale": ["მხოლოდ გაყიდვა","For sale only","Только продажа","販売のみ"],
+  "purpose_rent": ["მხოლოდ გაქირავება","For rent only","Только аренда","レンタルのみ"],
   "staff_delete": ["თანამშრომლის წაშლა","Delete employee","Удалить сотрудника","従業員を削除"],
   "staff_delete_hint": ["შესვლა წაიშლება; მისი გაყიდვები, გაქირავებები და ისტორია რჩება","The login is removed; their sales, rentals and history stay","Вход удаляется; продажи, аренды и история остаются","ログインは削除されます。売上・レンタル・履歴は残ります"],
   "staff_deleted": ["თანამშრომელი წაიშალა","Employee deleted","Сотрудник удалён","従業員を削除しました"],
