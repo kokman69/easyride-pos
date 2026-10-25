@@ -188,7 +188,7 @@ async function renderGate(){
     const list = LOGIN, last = ls.get('er-gemail');
     $('gate-body').innerHTML = `<form id="g-login" class="stack">
       ${list.length ? '' : `<div class="small muted">${esc(t('no_accounts'))}</div>`}
-      <label class="f">${esc(t('password'))}<input id="g-pw" type="password" autocomplete="current-password" required autofocus></label>
+      <label class="f">${esc(t('password'))}<span class="pwwrap"><input id="g-pw" type="password" autocomplete="current-password" required autofocus><button type="button" class="pweye" data-eye aria-label="${esc(t('pw_show'))}" title="${esc(t('pw_show'))}">${EYE[0]}</button></span></label>
       <div id="g-err" class="err" hidden></div>
       <button class="btn primary big" id="g-btn" ${list.length ? '' : 'disabled'}>${esc(t('login_btn'))}</button></form>`;
     $('g-login').onsubmit = async e => {
@@ -215,7 +215,7 @@ function renderGateOld(){
   const names = S.settings.sellers || [], last = ls.get('er-name') || '';
   $('gate-body').innerHTML = `<h2>${esc(t('login_title'))}</h2><form id="g-login" class="stack">
     ${names.length ? `<label class="f">${esc(t('who_are_you'))}<select id="g-name">${names.map(n => `<option ${n===last?'selected':''}>${esc(n)}</option>`).join('')}</select></label>` : ''}
-    <label class="f">${esc(t('password'))}<input id="g-pw" type="password" autocomplete="current-password" required></label>
+    <label class="f">${esc(t('password'))}<span class="pwwrap"><input id="g-pw" type="password" autocomplete="current-password" required><button type="button" class="pweye" data-eye aria-label="${esc(t('pw_show'))}" title="${esc(t('pw_show'))}">${EYE[0]}</button></span></label>
     <label class="row small muted"><input type="checkbox" id="g-rem" checked> ${esc(t('remember'))}</label>
     <div id="g-err" class="err" hidden></div>
     <button class="btn primary big" id="g-btn">${esc(t('login_btn'))}</button></form>`;
@@ -265,6 +265,11 @@ const ICONS = {
   fin:'<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'
 };
+/* show / hide the password while typing it */
+const EYE = ['<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.6 6.6C3.9 8.3 2 12 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>'];
+document.addEventListener('click', e => { const b = e.target.closest('[data-eye]'); if (!b) return; const inp = b.parentElement.querySelector('input'); if (!inp) return;
+  const show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; b.innerHTML = EYE[show ? 1 : 0]; const l = t(show ? 'pw_hide' : 'pw_show'); b.title = l; b.setAttribute('aria-label', l); inp.focus(); });
 const isSimple = () => document.documentElement.classList.contains('simple');
 const svgIcon = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
 /* the menu at the top (phones, and the home page on a computer): the page that is open is the yellow one */

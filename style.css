@@ -1157,3 +1157,9 @@ html.simple header .who{position:relative}
 .whomenu .wm-langs button{min-height:38px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
 .whomenu .wm-langs button[aria-pressed="true"]{background:var(--pri,#FFD200);color:var(--pri-ink,#111);border-color:transparent;font-weight:700}
 .whomenu .wm-out{color:var(--danger,#e5484d);border-top:1px solid var(--line);border-radius:4px 4px 12px 12px;margin-top:4px}
+/* v72: eye button inside the password field */
+.pwwrap{position:relative;display:block}
+.pwwrap input{padding-right:48px;width:100%}
+.pweye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:10px;padding:0}
+.pweye:hover{color:var(--ink)}
+.pweye svg{width:21px;height:21px}
