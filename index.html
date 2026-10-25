@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Georgian:wght@400;500;600;700;800&family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
-<link rel="stylesheet" href="style.css?v=69">
+<link rel="stylesheet" href="style.css?v=70">
 <script>try{if(matchMedia('(pointer:coarse)').matches||innerWidth<=1100)document.documentElement.classList.add('simple')}catch(e){}</script>
 <script>try{var th=localStorage.getItem('er-theme');if(th==='light'||th==='dark')document.documentElement.setAttribute('data-theme',th)}catch(e){}</script>
 </head>
@@ -60,16 +60,10 @@
 
 <main>
   <div id="banner" class="banner" hidden></div>
+  <nav class="hnav htop" id="topnav" aria-label="menu"></nav>
 
   <!-- HOME: sale or rental on the left, today on the right -->
   <section id="v-home" hidden>
-    <div class="hnav htop">
-      <button type="button" class="btn hcashbtn" data-go="cash">💵 <span data-i="tab_cash"></span></button>
-      <button type="button" class="btn" data-go="stock" data-i="tab_stock"></button>
-      <button type="button" class="btn" data-go="customers" data-i="tab_customers"></button>
-      <button type="button" class="btn" data-go="report" data-i="tab_report"></button>
-      <button type="button" class="btn" data-go="settings" data-i="tab_settings" id="h-go-settings"></button>
-    </div>
     <div class="hmode" id="h-mode" role="tablist"></div>
     <div class="home2">
       <div class="stack" id="h-sale">
@@ -82,7 +76,7 @@
 
   <!-- CASH DESK: today's sales and rentals, vehicles out now, closing the day -->
   <section id="v-cash" hidden>
-    <div class="row between" style="margin-bottom:12px"><h2 style="margin:0">💵 <span data-i="tab_cash"></span></h2><button type="button" class="btn" data-go="home" data-i="tab_home"></button></div>
+    <div class="row between" style="margin-bottom:12px"><h2 style="margin:0;display:flex;align-items:center;gap:10px"><svg class="ico" style="width:26px;height:26px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9v.01M18 15v.01"/></svg><span data-i="tab_cash"></span></h2><button type="button" class="btn" data-go="home" data-i="tab_home"></button></div>
     <div class="cashgrid">
       <div class="panel pad stack"><div class="hhead"><h3 data-i="tab_rent"></h3><span class="num" id="h-rent-sum"></span></div><div id="h-rented" class="hcards"></div></div>
       <div class="panel pad stack"><div class="hhead"><h3 data-i="h_sold_today"></h3><span class="num" id="h-sold-sum"></span></div><div id="h-sold" class="hlist"></div></div>
@@ -280,12 +274,12 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=69"></script>
-<script src="i18n.js?v=69"></script>
-<script src="countries.js?v=69"></script>
-<script src="mrz.js?v=69"></script>
-<script src="contract.js?v=69"></script>
-<script src="report.js?v=69"></script>
-<script src="app.js?v=69"></script>
+<script src="config.js?v=70"></script>
+<script src="i18n.js?v=70"></script>
+<script src="countries.js?v=70"></script>
+<script src="mrz.js?v=70"></script>
+<script src="contract.js?v=70"></script>
+<script src="report.js?v=70"></script>
+<script src="app.js?v=70"></script>
 </body>
 </html>

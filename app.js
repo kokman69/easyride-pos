@@ -259,13 +259,20 @@ const ICONS = {
   home:'<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
   sale:'<path d="M3 7h18l-2 11H5L3 7z"/><path d="M8 7a4 4 0 0 1 8 0"/>',
   stock:'<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
-  rent:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  rent:'<circle cx="5.5" cy="17" r="2.5"/><circle cx="18.5" cy="17" r="2.5"/><path d="M8 17h7.5l2-6h-4l-1.5-5H9"/><path d="M13.5 11H6.5a3.5 3.5 0 0 0-3.5 3.5V15"/>',
   customers:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>',
   report:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   fin:'<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'
 };
 const isSimple = () => document.documentElement.classList.contains('simple');
+const svgIcon = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
+/* the menu at the top (phones, and the home page on a computer): the page that is open is the yellow one */
+function paintTopnav(allowed){
+  const el = $('topnav'); if (!el) return;
+  const keys = ['cash', 'stock', 'customers', 'report'].filter(k => !allowed || allowed.includes(k));
+  el.innerHTML = keys.map(k => `<button type="button" class="btn" data-go="${k}" aria-current="${S.tab === k ? 'page' : 'false'}">${svgIcon(k)}<span>${esc(t('tab_' + k))}</span></button>`).join('');
+}
 function paintMode(){
   const mb = $('mode-btn'), lab = t(isSimple() ? 'mode_full' : 'mode_simple');
   // shows where the button takes you: a monitor = full version, a phone = simple version
@@ -285,6 +292,7 @@ function buildTabs(){
   if (!allowed.includes(S.tab)) S.tab = 'home';
   if (S.tab !== 'home') S.hmode = '';   // back on the home page: the two buttons, nothing open
   placeHome(S.tab === 'home');
+  paintTopnav(allowed);
   paintMode();
   $('tabs').innerHTML = tabs.map(k => `<button data-tab="${k}" role="tab" aria-selected="${k===S.tab}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg><span>${esc(t('tab_' + k))}</span></button>`).join('');
   ['home','cash','sale','stock','rent','customers','fin','report','settings'].forEach(k => $('v-' + k).hidden = k !== S.tab);
@@ -2056,7 +2064,32 @@ $('st-noacc').onclick = async e => {
   try { await q(sb.rpc('admin_create_staff', { p_name:row.dataset.n, p_role:'consultant', p_password:pw, p_phone:'' })); toast(t('staff_created') + ' · ' + row.dataset.n); await reload('staff', 'settings'); }
   catch(err){ fail(err); b.disabled = false; }
 };
-$('who-btn').onclick = () => openMe();
+$('who-btn').onclick = e => { if (isSimple()) { e.stopPropagation(); toggleWhoMenu(); } else openMe(); };
+/* phones: the profile button opens a small menu — light/dark, language, settings, log out */
+const LOGOUT_ICO = '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>';
+function toggleWhoMenu(force){
+  let m = $('whomenu');
+  if (m || force === false) { m?.remove(); document.removeEventListener('click', whoAway, true); return; }
+  m = document.createElement('div'); m.id = 'whomenu'; m.className = 'whomenu'; m.setAttribute('role', 'menu');
+  const dark = curTheme() === 'dark';
+  m.innerHTML = `<button type="button" class="wm-me" data-wm="me"><b>${esc(S.user?.name || '')}</b><small>${esc(t(roleKey(S.user?.role)))}</small></button>
+    <button type="button" data-wm="theme">${dark ? SUN : MOON}<span>${esc(t('theme_toggle'))}</span></button>
+    <div class="wm-langs">${LANGS.map(([k, n]) => `<button type="button" data-wm-lang="${k}" aria-pressed="${k === LANG}">${esc(n)}</button>`).join('')}</div>
+    ${isAdmin() ? `<button type="button" data-wm="settings">${svgIcon('settings')}<span>${esc(t('tab_settings'))}</span></button>` : ''}
+    <button type="button" data-wm="logout" class="wm-out"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LOGOUT_ICO}</svg><span>${esc(t('logout'))}</span></button>`;
+  document.querySelector('header .who').appendChild(m);
+  m.onclick = e => {
+    const lb = e.target.closest('[data-wm-lang]'); if (lb) { toggleWhoMenu(false); setLang(lb.dataset.wmLang); return; }
+    const a = e.target.closest('[data-wm]')?.dataset.wm; if (!a) return;
+    toggleWhoMenu(false);
+    if (a === 'theme') document.querySelector('header .theme-btn')?.click();
+    else if (a === 'settings') go('settings');
+    else if (a === 'logout') $('logout').click();
+    else if (a === 'me') openMe();
+  };
+  setTimeout(() => document.addEventListener('click', whoAway, true));
+}
+function whoAway(e){ if (!e.target.closest('#whomenu') && !e.target.closest('#who-btn')) toggleWhoMenu(false); }
 function openMe(){
   const u = S.user; if (!u) return;
   openOv(`<div class="row between"><h2>${esc(t('my_profile'))}</h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
@@ -2278,7 +2311,7 @@ function cashHtml(today){
   else body = `<div class="small muted">${esc(t('fin_closed_at'))} ${fmtTs(c.closed_at)} · ${esc(c.closed_by || '')}</div>
     <dl class="specs"><dt>${esc(t('fin_expected'))}</dt><dd class="num">${money(c.expected)}</dd><dt>${esc(t('fin_counted'))}</dt><dd class="num">${money(c.counted)}</dd><dt><b>${esc(t('fin_diff'))}</b></dt><dd class="num"><b style="color:${+c.difference < 0 ? 'var(--danger)' : +c.difference > 0 ? 'var(--warn)' : 'var(--green)'}">${money(c.difference)}</b></dd></dl>
     ${c.note ? `<div class="small">${esc(c.note)}</div>` : ''}${isAdmin() ? `<button type="button" class="btn ghost small" id="fn-reopen">${esc(t('fin_reopen'))}</button>` : ''}`;
-  return `<div class="panel pad stack"><div class="row between"><h3 style="margin:0">💵 ${esc(t('fin_cash'))} · <span class="num">${today}</span></h3><span class="tag ${c && !c.closed_at ? '' : 'out'}">${esc(t(!c ? 'fin_not_open' : c.closed_at ? 'fin_closed' : 'fin_is_open'))}</span></div>${body}
+  return `<div class="panel pad stack"><div class="row between"><h3 style="margin:0;display:flex;align-items:center;gap:8px">${svgIcon('cash')} ${esc(t('fin_cash'))} · <span class="num">${today}</span></h3><span class="tag ${c && !c.closed_at ? '' : 'out'}">${esc(t(!c ? 'fin_not_open' : c.closed_at ? 'fin_closed' : 'fin_is_open'))}</span></div>${body}
     <button type="button" class="btn" data-dayrep="">📤 ${esc(t('day_title'))}</button></div>`;
 }
 function expHtml(inR){
@@ -2487,14 +2520,13 @@ function placeHome(on){
     else if (el.parentNode !== HOME_BACK[id].parent) HOME_BACK[id].parent.insertBefore(el, HOME_BACK[id].next && HOME_BACK[id].next.parentNode === HOME_BACK[id].parent ? HOME_BACK[id].next : null);
   }
 }
-const hMode = () => S.hmode || '';
+const hMode = () => S.hmode || 'rent';   // the rental form is open first
 const go = tab => { S.tab = tab; closeSheet(); buildTabs(); render(); window.scrollTo(0, 0); };
 function renderHome(){
   const m = hMode();
-  $('h-mode').innerHTML = [['sale', 'tab_sale', '🛒'], ['rent', 'tab_rent', '🛵']].map(([k, l, ic]) => `<button type="button" role="tab" data-m="${k}" aria-selected="${m === k}">${ic} ${esc(t(l))}</button>`).join('');
+  $('h-mode').innerHTML = [['rent', 'tab_rent'], ['sale', 'tab_sale']].map(([k, l]) => `<button type="button" role="tab" data-m="${k}" aria-selected="${m === k}">${svgIcon(k)}<span>${esc(t(l))}</span></button>`).join('');
   $('h-sale').dataset.off = m !== 'sale'; $('h-rent').dataset.off = m !== 'rent';   // one form at a time, opened by its button
   renderSale(); renderRent();
-  $('h-go-settings').hidden = !isAdmin();
 }
 /* cash desk: vehicles out now, today's rentals and sales (with their buttons), the register card to close the day */
 function renderCash(){
@@ -2523,7 +2555,7 @@ function renderCash(){
     : `<div class="empty small">${esc(t('h_none_today'))}</div>`;
   if (S.fin.ready) paintHomeCash(); else { $('h-cash').innerHTML = `<div class="panel pad small">${esc(t('loading'))}</div>`; loadFin().then(() => S.tab === 'cash' && paintHomeCash()); }
 }
-$('h-mode').onclick = e => { const b = e.target.closest('[data-m]'); if (!b) return; S.hmode = S.hmode === b.dataset.m ? '' : b.dataset.m; renderHome(); };
+$('h-mode').onclick = e => { const b = e.target.closest('[data-m]'); if (!b) return; S.hmode = b.dataset.m; renderHome(); };
 const homeClick = e => {
   const g = e.target.closest('[data-go]'); if (g) return go(g.dataset.go);
   const row = e.target.closest('[data-id]'), a = e.target.closest('[data-act]')?.dataset.act; if (!row || !a) return;
@@ -2538,6 +2570,7 @@ const homeClick = e => {
   else if (a === 'redit') openRentalEdit(r.id);
 };
 $('v-home').addEventListener('click', homeClick);
+$('topnav').addEventListener('click', e => { const g = e.target.closest('[data-go]'); if (g) go(g.dataset.go); });
 $('v-cash').addEventListener('click', e => { if (!e.target.closest('#h-cash')) homeClick(e); });
 /* closing the day: the register card (expected cash, counted cash, note) on the cash desk page */
 function paintHomeCash(){

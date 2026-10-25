@@ -1132,3 +1132,28 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 .hcard-a [data-act="ret"]{background:var(--surface);border:1px solid var(--line);color:var(--ink)}
 .hcard-b{gap:3px;padding:10px 10px 6px}
 @media (max-width:600px){ .hcard-ph{aspect-ratio:4/3} }
+/* v70: one menu at the top (open page = yellow), simple line icons, profile menu on phones */
+#topnav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 auto 14px;max-width:1100px;border:0;padding:0}
+html:not(.simple):not(.athome) #topnav{display:none}
+#topnav .btn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:10px 8px;border-radius:14px;font-weight:600;background:var(--surface);border:1px solid var(--line);color:var(--ink);min-width:0;white-space:nowrap}
+#topnav .btn span{overflow:hidden;text-overflow:ellipsis}
+#topnav .btn[aria-current="page"]{background:var(--pri,#FFD200);border-color:transparent;color:var(--pri-ink,#111);font-weight:700}
+.ico{width:20px;height:20px;flex:none;display:block}
+#v-home .hmode button{display:flex;align-items:center;justify-content:center;gap:8px}
+#v-home .hmode button .ico{width:22px;height:22px}
+@media (max-width:600px){
+  #topnav{grid-template-columns:1fr 1fr;margin-bottom:12px}
+  #topnav .btn{font-size:15px}
+  html.simple header .who .theme-btn,html.simple header .who .langbtn,html.simple header .who #logout{display:none!important}
+}
+html.simple header .who{position:relative}
+.whomenu{position:absolute;right:0;top:calc(100% + 8px);z-index:60;width:250px;max-width:calc(100vw - 24px);background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 40px -12px rgba(0,0,0,.35);padding:6px;display:flex;flex-direction:column;gap:2px}
+.whomenu > button{display:flex;align-items:center;gap:12px;width:100%;min-height:46px;padding:10px 12px;border:0;border-radius:12px;background:none;color:var(--ink);font:inherit;font-size:15px;text-align:left;cursor:pointer}
+.whomenu > button:hover,.whomenu > button:active{background:var(--line)}
+.whomenu > button svg{width:20px;height:20px;flex:none}
+.whomenu .wm-me{flex-direction:column;align-items:flex-start;gap:0;border-bottom:1px solid var(--line);border-radius:12px 12px 4px 4px;margin-bottom:4px}
+.whomenu .wm-me small{color:var(--muted);font-size:12px}
+.whomenu .wm-langs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px 6px 6px}
+.whomenu .wm-langs button{min-height:38px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
+.whomenu .wm-langs button[aria-pressed="true"]{background:var(--pri,#FFD200);color:var(--pri-ink,#111);border-color:transparent;font-weight:700}
+.whomenu .wm-out{color:var(--danger,#e5484d);border-top:1px solid var(--line);border-radius:4px 4px 12px 12px;margin-top:4px}
