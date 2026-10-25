@@ -2247,9 +2247,9 @@ const repOf = k => S.dayRep.list.find(r => r.day === k);
 function dayFigures(day){
   const items = [], add = (pay, amount, name) => { if (+amount) items.push({ pay: pay || 'cash', amount:r2(amount), name }); };
   S.sales.filter(s => s.day === day && gel(s)).forEach(s => add(s.payment, s.total, (s.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join(', ')));
-  S.rentals.filter(r => r.day === day && r.status !== 'cancelled').forEach(r => add(r.payment, r.price, `${t('tab_rent')} · ${r.unit_label || tType(r.type)}`));
-  S.rentals.filter(r => +r.late_fee && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.late_payment, r.late_fee, `${t('late_fee')} · ${r.unit_label || ''}`));
-  S.rentals.filter(r => +r.deposit_kept && (r.deposit_currency || 'GEL') === 'GEL' && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.deposit_payment || 'cash', r.deposit_kept, `${t('dep_kept')} · ${r.unit_label || ''}`));
+  S.rentals.filter(r => r.day === day && r.status !== 'cancelled').forEach(r => add(r.payment, r.price, lg => `${tL('tab_rent', lg)} · ${locData(r.unit_label, lg) || tL('t_' + r.type, lg)}`));
+  S.rentals.filter(r => +r.late_fee && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.late_payment, r.late_fee, lg => `${tL('late_fee', lg)} · ${locData(r.unit_label || '', lg)}`));
+  S.rentals.filter(r => +r.deposit_kept && (r.deposit_currency || 'GEL') === 'GEL' && r.returned_at && dayKey(new Date(r.returned_at)) === day).forEach(r => add(r.deposit_payment || 'cash', r.deposit_kept, lg => `${tL('dep_kept', lg)} · ${locData(r.unit_label || '', lg)}`));
   const sum = p => r2(items.filter(i => p(i.pay)).reduce((a, i) => a + i.amount, 0));
   const cash = sum(p => p === 'cash'), card = sum(p => p === 'card'), transfer = sum(p => p === 'transfer'), total = sum(() => true);
   // deposits per currency: held at the start, received, returned, held at the end
@@ -2263,7 +2263,7 @@ function dayFigures(day){
     if (r.day <= day && (open || (b && b > day))) dep.end[c] = (dep.end[c] || 0) + v;
   });
   const collect = r2((S.fin.expenses || []).filter(x => x.day === day && gel(x) && isCash(x.payment) && x.category === 'collect').reduce((a, x) => a + (+x.amount || 0), 0));
-  const exp = (S.fin.expenses || []).filter(x => x.day === day && gel(x) && isCash(x.payment) && x.category !== 'collect').map(x => ({ amount:+x.amount, name:t('ec_' + x.category) + (x.note ? ' · ' + x.note : '') }));
+  const exp = (S.fin.expenses || []).filter(x => x.day === day && gel(x) && isCash(x.payment) && x.category !== 'collect').map(x => ({ amount:+x.amount, name: lg => tL('ec_' + x.category, lg) + (x.note ? ' · ' + x.note : '') }));
   return { items, cash, card, transfer, total, dep, exp, collect, expCash:r2(exp.reduce((a, x) => a + x.amount, 0)) };
 }
 const depStr = acc => { const ks = Object.keys(acc).filter(k => acc[k]); return ks.length ? ks.map(k => `${r2(acc[k]).toLocaleString('en-US')} ${k}`).join(' / ') : '0 GEL'; };
