@@ -1067,3 +1067,19 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 .depwrap{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
 .depwrap input{width:100%}
 @media (max-width:600px){ #s-kind.seg{max-width:none} }
+/* v63: photo tiles flow with the page (no inner scroll box); stock page tidy on phones */
+.egrid{max-height:none;overflow:visible}
+#p-kind.seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;max-width:520px;align-self:stretch;gap:4px;border-radius:14px}
+#p-kind.seg .chip{justify-content:center;display:flex;align-items:center;gap:6px;padding:10px 6px;white-space:nowrap;min-width:0}
+@media (max-width:600px){
+  #v-stock > .stack > .row.between{flex-direction:column;align-items:stretch;gap:10px}
+  #v-stock > .stack > .row.between h2{margin:0}
+  #v-stock > .stack > .row.between > .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  #v-stock > .stack > .row.between > .row .btn{min-height:46px;padding:10px 6px;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  #p-stats{grid-template-columns:1fr 1fr}
+  #p-kind.seg{max-width:none}
+  #v-stock .row:has(#p-q){flex-wrap:wrap;gap:8px}
+  #v-stock #p-q{flex:1 1 100%!important;min-width:0!important;min-height:44px}
+  #p-types.chips{flex-wrap:wrap;overflow:visible}
+}
+@media (max-width:360px){ #v-stock > .stack > .row.between > .row .btn{font-size:13px;padding:10px 4px} }

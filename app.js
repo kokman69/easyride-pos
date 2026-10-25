@@ -937,7 +937,7 @@ function renderStock(){
   typeChips($('p-types'), S.pType, x => { S.pType = x; renderStock(); }, counts);
   const units = S.products.reduce((a, p) => a + (+p.qty || 0), 0), value = S.products.reduce((a, p) => a + (+p.qty || 0) * (+p.price || 0), 0);
   const out = S.products.filter(p => !(+p.qty > 0)).length, veh = S.products.filter(p => VEH.includes(p.type)).reduce((a, p) => a + (+p.qty || 0), 0);
-  $('p-stats').innerHTML = [['st_units', units], ['st_vehicles', veh], ['st_value', money(value)], ['st_out', out]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('');
+  $('p-stats').innerHTML = [['st_units', units], ['st_vehicles', veh]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('');
   const qq = $('p-q').value.trim(), only = $('p-instock').checked, adm = isAdmin();
   const sorter = (a, b) => (a.type || '').localeCompare(b.type || '') || (plateOf(a) ? 0 : 1) - (plateOf(b) ? 0 : 1) || plateOf(a).localeCompare(plateOf(b), undefined, { numeric:true }) || pName(a).localeCompare(pName(b));
   const shown = pool.filter(p => (!S.pType || p.type === S.pType) && match(p, qq));
