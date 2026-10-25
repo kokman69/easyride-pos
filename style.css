@@ -1099,3 +1099,8 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
   #ov .cbar .btn{flex:1 1 auto;min-width:0;white-space:normal;line-height:1.25}
   #ov .cbar .btn.primary{flex:1 1 100%;min-width:0;order:9}
 }
+/* v66: logout icon exactly in the middle of its button */
+@media (max-width:600px){
+  header .who #logout{display:flex!important;align-items:center;justify-content:center;gap:0;padding:0!important;color:transparent;text-indent:0;overflow:hidden}
+  header .who #logout::before{display:block;flex:none;margin:0;background:var(--ink);transform:translateX(1px)}
+}
