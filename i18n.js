@@ -1,5 +1,6 @@
 /* Translations: [ქართული, English, Русский, 日本語] */
 window.I18N = {
+  "sd_exps": ["ხარჯები და გატანები","Expenses and take-outs","Расходы и изъятия","経費・出金"],
   "tab_cash": ["სალარო","Cash desk","Касса","レジ"],
   "sp_photos": ["ფოტოთი არჩევა","Choose by photo","Выбрать по фото","写真で選ぶ"],
   "sp_photos_hide": ["ფოტოების დამალვა","Hide photos","Скрыть фото","写真を隠す"],

@@ -976,3 +976,12 @@ html.athome .cartbar,html.athome #v-home .sheet-head{display:none!important}
 .hcard.is-out{outline:2px solid rgba(229,57,53,.55)}
 .hcard.is-back{outline:2px solid rgba(46,158,79,.45)}
 .cashout{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px dashed var(--line);border-radius:12px}
+
+/* v53: report → seller details */
+#rp-sellers .srow{cursor:pointer}
+#rp-sellers .srow:hover td{background:var(--hover,rgba(255,255,255,.04))}
+#rp-sellers .slink{color:var(--pri,#FFD200);font-weight:600}
+.sdst{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;color:#fff;white-space:nowrap}
+.sdst.out{background:var(--danger,#e5484d)}.sdst.back{background:var(--green,#2f9e44)}
+#sd-log{max-height:420px;overflow:auto}
+#ov .panel.wide .panel{max-width:none}

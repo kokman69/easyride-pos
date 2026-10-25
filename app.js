@@ -1754,7 +1754,7 @@ function renderReport(){
   sales.forEach(s => { const o = g(s.seller || '—'); o.n++; addCur(o.sum, s.currency, s.total); o.veh += (s.lines || []).filter(l => VEH.includes(l.type)).reduce((qq, l) => qq + (+l.qty || 0), 0); });
   rents.forEach(r => { g(r.seller || '—').rent += rentSum(r); });
   const sk = Object.keys(bs).sort((x, y) => bs[y].n - bs[x].n);
-  $('rp-sellers').innerHTML = sk.length ? `<table><thead><tr><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_sales'))}</th><th class="r">${esc(t('col_veh'))}</th><th class="r">${esc(t('col_sum'))}</th><th class="r">${esc(t('col_rent'))}</th></tr></thead><tbody>${sk.map(k => `<tr><td>${esc(k)}</td><td class="r num">${bs[k].n}</td><td class="r num">${bs[k].veh}</td><td class="r num">${moneyMulti(bs[k].sum)}</td><td class="r num">${money(bs[k].rent)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
+  $('rp-sellers').innerHTML = sk.length ? `<table><thead><tr><th>${esc(t('seller'))}</th><th class="r">${esc(t('col_sales'))}</th><th class="r">${esc(t('col_veh'))}</th><th class="r">${esc(t('col_sum'))}</th><th class="r">${esc(t('col_rent'))}</th></tr></thead><tbody>${sk.map(k => `<tr data-s="${esc(k)}" class="${canSeeSeller(k) ? 'srow' : ''}"><td>${canSeeSeller(k) ? `<span class="slink">${esc(k)} ›</span>` : esc(k)}</td><td class="r num">${bs[k].n}</td><td class="r num">${bs[k].veh}</td><td class="r num">${moneyMulti(bs[k].sum)}</td><td class="r num">${money(bs[k].rent)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
   const bt = {}; sales.forEach(s => (s.lines || []).forEach(l => { const o = bt[l.type || 'other'] ??= { q:0, sum:{} }; o.q += +l.qty || 0; addCur(o.sum, s.currency, l.total); }));
   const tk = Object.keys(bt).sort((x, y) => bt[y].q - bt[x].q);
   $('rp-types').innerHTML = tk.length ? `<table><thead><tr><th>${esc(t('col_type'))}</th><th class="r">${esc(t('col_units'))}</th><th class="r">${esc(t('col_sum'))}*</th></tr></thead><tbody>${tk.map(k => `<tr><td>${esc(tType(k))}</td><td class="r num">${bt[k].q}</td><td class="r num">${moneyMulti(bt[k].sum)}</td></tr>`).join('')}</tbody></table><div class="pad small muted">${esc(t('excl_extra'))}</div>` : `<div class="empty small">${esc(t('no_records'))}</div>`;
@@ -1803,6 +1803,47 @@ function renderVehSold(periodSales){
     ${VS_OPEN ? (() => { const ms = Object.entries(all[VS_OPEN].models).sort((a, b) => b[1].q - a[1].q || a[0].localeCompare(b[0]));
       return `<div class="tw"><table><thead><tr><th>${esc(tType(VS_OPEN))} — ${esc(t('model_col'))}</th><th class="r">${esc(t('col_units'))}</th><th class="r">${esc(t('col_sum'))}</th></tr></thead>
         <tbody>${ms.map(([n, m]) => `<tr><td>${esc(n)}</td><td class="r num">${m.q}</td><td class="r num">${moneyMulti(m.sum)}</td></tr>`).join('')}</tbody></table></div>`; })() : `<div class="small muted pad" style="padding-top:0">${esc(t('vsold_hint'))}</div>`}`;
+}
+/* report → click a seller: everything they rented, sold and spent in the chosen period; the admin also sees their full activity log */
+const canSeeSeller = k => isAdmin() || (k && k === (S.user?.name || ''));
+$('rp-sellers').onclick = e => { const tr = e.target.closest('tr[data-s]'); if (tr && canSeeSeller(tr.dataset.s)) openSeller(tr.dataset.s); };
+async function openSeller(nm){
+  const [a, b] = periodRange(), inR = x => x.day >= a && x.day <= b, who = x => (x.seller || '—') === nm;
+  const rents = S.rentals.filter(r => inR(r) && who(r) && r.status !== 'cancelled').sort((x, y) => String(y.created_at).localeCompare(x.created_at));
+  const sales = S.sales.filter(x => inR(x) && who(x)).sort((x, y) => String(y.created_at).localeCompare(x.created_at));
+  const per = a === b ? fmtD(new Date(a + 'T12:00')) : `${a.length === 10 ? fmtD(new Date(a + 'T12:00')) : '…'} — ${b.length === 10 ? fmtD(new Date(b + 'T12:00')) : '…'}`;
+  const rentTot = rents.reduce((s, r) => s + rentSum(r), 0), saleTot = sales.reduce((acc, x) => addCur(acc, x.currency, x.total), {});
+  const disc = sales.reduce((s, x) => s + Math.max(0, (+x.list_total || 0) - (+x.total || 0)), 0) + rents.reduce((s, r) => s + (+r.contract?.raw?.disc || 0), 0);
+  const st = r => r.status === 'active' ? `<span class="sdst out">${esc(t('h_out'))}</span>` : `<span class="sdst back">${esc(t('h_back'))}</span>${r.returned_at ? ` <span class="small muted num">${fmtTs(r.returned_at)}</span>` : ''}`;
+  const sec = (title, n, body) => `<div class="panel" style="width:100%"><div class="pad row between"><h3 style="margin:0">${esc(title)}</h3><span class="small muted num">${n}</span></div>${body}</div>`;
+  const none = `<div class="empty small">${esc(t('no_records'))}</div>`;
+  openOv(`<div class="row between"><h2 style="margin:0">${esc(nm)} <span class="small muted" style="font-weight:400">· ${esc(per)}</span></h2><button type="button" class="btn" data-close>${esc(t('close'))}</button></div>
+    <div class="stats small3" style="width:100%">${[['tab_rent', `${rents.length} · ${money(rentTot)}`], ['tab_sale', `${sales.length} · ${moneyMulti(saleTot)}`], ['rs_disc', money(disc)]].map(([k, v]) => `<div class="panel stat"><h3>${esc(t(k))}</h3><div class="v num">${v}</div></div>`).join('')}</div>
+    ${sec(t('tab_rent'), rents.length, rents.length ? `<div class="tw"><table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_vehicle'))}</th><th>${esc(t('col_customer'))}</th><th>${esc(t('payment'))}</th><th class="r">${esc(t('col_amount'))}</th><th class="r">${esc(t('deposit'))}</th><th>${esc(t('rent_status'))}</th></tr></thead><tbody>${rents.map(r => `<tr>
+      <td class="num">${fmtTs(r.created_at)}</td><td>${esc(locData(r.unit_label) || tType(r.type))}<div class="small muted">${esc(rateLabel(r.rate))}</div></td><td>${esc(r.customer_name || '—')}${r.phone ? `<div class="small muted">${esc(r.phone)}</div>` : ''}</td>
+      <td>${esc(tPay(r.payment))}</td><td class="r num"><b>${money(r.price)}</b>${+r.contract?.raw?.disc ? `<div class="small muted">−${money(r.contract.raw.disc)}</div>` : ''}${+r.late_fee ? `<div class="small due late">+${money(r.late_fee)} ${esc(t('late_fee'))}</div>` : ''}</td>
+      <td class="r num">${+r.deposit ? money(r.deposit, r.deposit_currency) : '—'}${+r.deposit_kept ? `<div class="small muted">${esc(t('dep_kept'))}: ${money(r.deposit_kept)}</div>` : ''}</td><td>${st(r)}</td></tr>`).join('')}</tbody></table></div>` : none)}
+    ${sec(t('tab_sale'), sales.length, sales.length ? `<div class="tw"><table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('col_items'))}</th><th>${esc(t('payment'))}</th><th class="r">${esc(t('col_amount'))}</th></tr></thead><tbody>${sales.map(x => `<tr>
+      <td class="num">${fmtTs(x.created_at)}</td><td>${(x.lines || []).map(l => `${esc(l.name)}${l.qty > 1 ? ` ×${l.qty}` : ''}${+l.pct ? ` <span class="tag low">−${+l.pct}%</span>` : ''}`).join('<br>')}${x.customer_name ? `<div class="small muted">${esc(x.customer_name)}</div>` : ''}</td>
+      <td>${esc(tPay(x.payment))}</td><td class="r num"><b>${money(x.total, x.currency)}</b>${+x.list_total > +x.total ? `<div class="small muted">−${money(+x.list_total - +x.total, x.currency)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : none)}
+    <div id="sd-exp"></div>${isAdmin() ? `<div class="panel" style="width:100%"><div class="pad"><h3 style="margin:0">${esc(t('activity'))}</h3></div><div id="sd-log" class="actlog"><div class="small muted pad">${esc(t('loading'))}</div></div></div>` : ''}`, 'wide');
+  const paintExp = () => { const box = $('sd-exp'); if (!box) return;
+    const ex = (S.fin.expenses || []).filter(x => inR(x) && who(x)).sort((x, y) => String(y.created_at).localeCompare(x.created_at));
+    box.innerHTML = ex.length ? sec(t('sd_exps'), ex.length, `<div class="tw"><table><thead><tr><th>${esc(t('col_time'))}</th><th>${esc(t('note'))}</th><th>${esc(t('payment'))}</th><th class="r">${esc(t('col_amount'))}</th></tr></thead><tbody>${ex.map(x => `<tr><td class="num">${fmtTs(x.created_at)}</td><td>${esc(t('ec_' + x.category))}${x.note ? ` <span class="small muted">${esc(x.note)}</span>` : ''}</td><td>${esc(tPay(x.payment))}</td><td class="r num">${money(x.amount, x.currency)}</td></tr>`).join('')}</tbody></table></div>`) : ''; };
+  if (S.fin.ready) paintExp(); else loadFin().then(paintExp).catch(console.error);
+  if (!isAdmin()) return;
+  const em = S.staff.filter(y => (y.name || '') === nm).map(y => y.email);
+  try {
+    if (!em.length) { $('sd-log').innerHTML = `<div class="small muted pad">${esc(t('no_records'))}</div>`; return; }
+    let qq = sb.from('audit_log').select('*').in('email', em);
+    if (a.length === 10) qq = qq.gte('at', new Date(a + 'T00:00').toISOString());
+    if (b.length === 10) qq = qq.lt('at', new Date(new Date(b + 'T00:00').getTime() + 864e5).toISOString());
+    const rows = await q(qq.order('at', { ascending:false }).limit(500)) || []; if (!$('sd-log')) return;
+    const saleTx = new Set(rows.filter(e => e.tbl === 'sales' && e.action !== 'update').map(e => e.txid));
+    const items = rows.map(e => logLine(e, saleTx)).filter(Boolean); let last = '';
+    $('sd-log').innerHTML = items.length ? items.map(({ e, icon, text }) => { const d = fmtD(new Date(e.at)), head = d !== last ? `<div class="logday">${esc(d)}</div>` : ''; last = d;
+      return `${head}<div class="logrow"><span class="num muted">${fmtTime(e.at)}</span><span class="logic">${icon}</span><span>${text}</span></div>`; }).join('') : `<div class="small muted pad">${esc(t('no_records'))}</div>`;
+  } catch(e){ console.error(e); if ($('sd-log')) $('sd-log').innerHTML = `<div class="small muted pad">${esc(t('save_failed'))}</div>`; }
 }
 $('rp-vall').onclick = e => { const b = e.target.closest('.vtile'); if (!b) return; VS_OPEN = VS_OPEN === b.dataset.t ? '' : b.dataset.t; renderReport(); };
 $('rp-period').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; S.period = b.dataset.p; $('rp-from').value = ''; $('rp-to').value = ''; renderReport(); };
