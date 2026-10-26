@@ -12,6 +12,7 @@ window.I18N = {
   "log_staff_delete": ["თანამშრომელი წაიშალა","Employee deleted","Сотрудник удалён","従業員を削除"],
   "ext_short": ["+ დრო","+ Time","+ Время","+ 時間"],
   "ec_safe_out": ["სეიფიდან გატანა (ანგარიშზე)","Taken from the safe (to the bank)","Из сейфа (на счёт)","金庫から出金（口座へ）"],
+  "ec_safe_in": ["სეიფის ნაშთი / შეტანა","Safe balance / put in","Остаток / внесено в сейф","金庫残高・入金"],
   "safe_out_btn": ["სეიფიდან გატანა","Take from safe","Из сейфа","金庫から出金"],
   "safe_balance": ["სეიფში","In the safe","В сейфе","金庫内"],
   "safe_full": ["სეიფში {n}-ზე მეტია — შეიტანე ნაწილი ანგარიშზე","Over {n} in the safe — put part of it on the bank account","В сейфе больше {n} — внесите часть на счёт","金庫に{n}以上 — 一部を口座へ入金してください"],

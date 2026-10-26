@@ -2221,10 +2221,10 @@ function logLine(e, saleTx){
 /* deposits are money held for the customer — they count in the cash drawer, never in revenue */
 const EXP_CATS = ['rent','salary','fuel','repair','parts','utilities','marketing','tax','supplies','other'];
 /* money moved, not spent: register → safe ('collect') and safe → bank account ('safe_out') */
-const isMove = x => x.category === 'collect' || x.category === 'safe_out';
+const isMove = x => x.category === 'collect' || x.category === 'safe_out' || x.category === 'safe_in';
 const SAFE_ALERT = 800;
 // what lies in the safe: everything taken out of the register minus what was taken out of the safe
-const safeBalance = () => r2((S.fin.expenses || []).filter(x => gel(x)).reduce((a, x) => a + (x.category === 'collect' ? +x.amount || 0 : x.category === 'safe_out' ? -(+x.amount || 0) : 0), 0));
+const safeBalance = () => r2((S.fin.expenses || []).filter(x => gel(x)).reduce((a, x) => a + (x.category === 'collect' || x.category === 'safe_in' ? +x.amount || 0 : x.category === 'safe_out' ? -(+x.amount || 0) : 0), 0));
 const STOCK_REASONS = ['received','writeoff','damaged','correction','supplier_return','customer_return','other'];
 const missingFn = e => /PGRST202|PGRST205|42P01|42883|does not exist|Could not find/i.test((e?.code || '') + ' ' + (e?.message || ''));
 S.fin = { ready:null, expenses:[], cash:null, moves:[], from:'', to:'' };
@@ -2299,7 +2299,7 @@ function dashHtml(a, b, inR){
 }
 /* today's cash taken out and cash expenses, each removable by an admin */
 function outList(day){
-  const l = S.fin.expenses.filter(x => x.day === day && isCash(x.payment)); if (!l.length) return '';
+  const l = S.fin.expenses.filter(x => x.day === day && isCash(x.payment) && x.category !== 'safe_in'); if (!l.length) return '';
   return `<div class="sflist">${l.map(x => `<div class="sfrow"><span>${x.category === 'collect' ? '💸' : x.category === 'safe_out' ? '🏦' : '🧾'}</span><span class="hrow-n">${esc(x.category === 'collect' ? t('cash_out_btn') : t('ec_' + x.category))}${x.note ? `<small>${esc(x.note)}</small>` : ''}</span><span class="num">−${money(x.amount, x.currency)}${isAdmin() ? ` <button type="button" class="btn ghost small danger" data-del-exp="${x.id}">✕</button>` : ''}</span></div>`).join('')}</div>`;
 }
 function cashHtml(today){
