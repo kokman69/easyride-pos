@@ -1163,3 +1163,10 @@ html.simple header .who{position:relative}
 .pweye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:10px;padding:0}
 .pweye:hover{color:var(--ink)}
 .pweye svg{width:21px;height:21px}
+/* v73: safe balance on the cash card */
+.safebox{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);font-size:14px}
+.safebox.full{background:#FFF6D6;border-color:#F2C200}
+.safebox.full small{color:#8a6a00;font-weight:600}
+.cashout .row:last-child{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.cashout .row:last-child .btn{white-space:normal;line-height:1.2;min-height:44px}
+@media (max-width:420px){ .cashout .row:last-child{grid-template-columns:1fr 1fr} .cashout .row:last-child .btn:last-child{grid-column:1/-1} }
