@@ -1170,3 +1170,17 @@ html.simple header .who{position:relative}
 .cashout .row:last-child{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .cashout .row:last-child .btn{white-space:normal;line-height:1.2;min-height:44px}
 @media (max-width:420px){ .cashout .row:last-child{grid-template-columns:1fr 1fr} .cashout .row:last-child .btn:last-child{grid-column:1/-1} }
+/* v75: cash-desk cards always two per row on phones, also on small iPhones */
+@media (max-width:600px){
+  .cashgrid .hcards,#h-rented.hcards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  #h-rented .hcard-b{padding:8px 8px 4px;font-size:12px}
+  #h-rented .hcard-b b{font-size:13px}
+  #h-rented .hcard-b small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #h-rented .hcard-a{gap:4px;padding:4px 6px 8px}
+  #h-rented .hcard-ph .rstat{font-size:11px;padding:3px 8px;left:6px;top:6px}
+}
+@media (max-width:400px){
+  #h-rented .hcard-a [data-act="ret"],#h-rented .hcard-a [data-act="ext"]{grid-column:1/-1;min-height:36px;font-size:13px}
+  #h-rented .hcard-a .btn{min-height:32px}
+  #h-rented .dueb{font-size:12px;white-space:normal;flex-wrap:wrap;max-width:100%;row-gap:0}
+}
