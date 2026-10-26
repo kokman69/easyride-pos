@@ -5,30 +5,54 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Easyride — ტელეფონის ხედი</title>
 <style>
-  html,body{margin:0;height:100%;background:#4a4a4a;font:14px system-ui,sans-serif;color:#eee}
+  html,body{margin:0;min-height:100%;background:#4a4a4a;font:14px system-ui,sans-serif;color:#eee}
   body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px 0;box-sizing:border-box}
-  .bar{display:flex;gap:8px;align-items:center}
-  .bar button{background:#FFD200;color:#111;border:0;border-radius:10px;padding:7px 12px;font-weight:700;cursor:pointer}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;padding:0 10px}
+  .bar button,.bar a{background:#FFD200;color:#111;border:0;border-radius:10px;padding:7px 12px;font-weight:700;cursor:pointer;text-decoration:none;font-size:13px}
+  .bar a.off{background:#666;color:#eee}
   .bar select{border-radius:10px;padding:6px 8px;border:0}
+  .frames{display:flex;gap:28px;flex-wrap:wrap;justify-content:center;align-items:flex-start;padding:6px 12px 24px}
+  figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+  figcaption{font-size:12px;color:#ddd}
   iframe{border:0;border-radius:22px;background:#fff;box-shadow:0 0 0 9px #111}
 </style>
 </head>
 <body>
   <div class="bar">
-    <select id="dev">
-      <option value="390x844">iPhone 14 / 15</option>
-      <option value="375x667">iPhone SE</option>
-      <option value="412x915">Android (Samsung)</option>
-      <option value="360x780">Android პატარა</option>
-    </select>
+    <select id="dev" aria-label="device"></select>
     <button id="reload" type="button">↻ განახლება</button>
+    <a id="all" href="?all">ყველა ერთად</a>
   </div>
-  <iframe id="ph" title="Easyride" src="./?phone=1"></iframe>
+  <div class="frames" id="frames"></div>
 <script>
-  const f = document.getElementById('ph'), d = document.getElementById('dev');
-  const size = () => { const [w, h] = d.value.split('x').map(Number); f.style.width = w + 'px'; f.style.height = Math.min(h, innerHeight - 70) + 'px'; };
-  d.onchange = size; addEventListener('resize', size); size();
-  document.getElementById('reload').onclick = () => { f.src = './?phone=' + Date.now(); };
+  // common phone screens (CSS pixels): [key, name, width, height]
+  const DEV = [
+    ['se', 'iPhone SE', 375, 667],
+    ['mini', 'iPhone 12 / 13 mini', 375, 812],
+    ['i14', 'iPhone 14 / 15', 390, 844],
+    ['i16', 'iPhone 16 / 16 Pro', 393, 852],
+    ['max', 'iPhone 15 / 16 Pro Max', 430, 932],
+    ['s8', 'Samsung Galaxy S8 / პატარა Android', 360, 740],
+    ['s21', 'Samsung Galaxy S21 / S23', 360, 780],
+    ['a54', 'Samsung Galaxy A54 / A-სერია', 412, 915],
+    ['pixel', 'Google Pixel 7 / 8', 412, 915],
+    ['xs', 'ძალიან პატარა (320)', 320, 568],
+    ['ipad', 'iPad mini', 744, 1133]
+  ];
+  const qs = new URLSearchParams(location.search), sel = document.getElementById('dev'), box = document.getElementById('frames');
+  sel.innerHTML = DEV.map(([k, n, w, h]) => `<option value="${k}">${n} — ${w}×${h}</option>`).join('');
+  const all = qs.has('all');
+  document.getElementById('all').classList.toggle('off', all);
+  document.getElementById('all').textContent = all ? 'ერთი ტელეფონი' : 'ყველა ერთად';
+  document.getElementById('all').href = all ? '?' : '?all';
+  const pick = DEV.find(d => d[0] === qs.get('d')) || DEV[2];
+  sel.value = pick[0];
+  const frame = ([k, n, w, h], fit) => `<figure><iframe title="${n}" src="./?phone=${k}" style="width:${w}px;height:${fit ? Math.min(h, innerHeight - 90) : h}px"></iframe><figcaption>${n} · ${w}×${h}</figcaption></figure>`;
+  const paint = () => { box.innerHTML = all ? DEV.filter(d => d[0] !== 'ipad' && d[0] !== 'pixel').map(d => frame(d, false)).join('') : frame(DEV.find(d => d[0] === sel.value), true); };
+  sel.onchange = () => { history.replaceState(null, '', '?d=' + sel.value); if (all) location.search = '?d=' + sel.value; else paint(); };
+  addEventListener('resize', () => { if (!all) paint(); });
+  document.getElementById('reload').onclick = paint;
+  paint();
 </script>
 </body>
 </html>
